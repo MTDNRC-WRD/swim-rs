@@ -1,10 +1,10 @@
 ## SWIM Configuration
 [FIELDS]
-project_folder = '/home/dgketchum/PycharmProjects/swim-rs/examples/tongue'
+project_folder = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/tongue'
 
 # data folder and alternate, so local and MCO machine paths get tried
 data_folder = '/media/research/IrrigationGIS/swim'
-alt_data_folder = '/home/dgketchum/data/IrrigationGIS/swim'
+alt_data_folder = 'C:/Users/CND571/Documents/Data/swim'
 
 # fields data; prepend with data_folder
 fields_path = 'examples/tongue/prepped_input/tongue_fields.json'
@@ -20,7 +20,7 @@ start_date = '2015-01-01'
 end_date = '2020-12-31'
 
 ## Static file names; prepend with data_folder
-input_data = 'examples/tongue/prepped_input/tongue_input_sample.json'
+input_data = 'examples/tongue/prepped_input/tongue_input.json'
 
 ## Misc
 elev_units = 'm'
@@ -28,9 +28,9 @@ refet_type = 'eto'
 
 [CALIBRATION]
 ## PEST Calibration
-calibrate_flag = 0
-calibration_folder = '/home/dgketchum/PycharmProjects/swim-rs/examples/tongue/master/mult'
-initial_values_csv = '/home/dgketchum/PycharmProjects/swim-rs/examples/tongue/params.csv'
+calibrate_flag = 1
+calibration_folder = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/tongue/master/mult'
+initial_values_csv = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/tongue/params.csv'
 
 [RUNSPEC]
 swb_mode = 'fao'

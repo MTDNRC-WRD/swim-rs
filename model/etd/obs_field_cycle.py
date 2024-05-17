@@ -85,8 +85,8 @@ def field_day_loop(config, plots, debug_flag=False, params=None):
 
             tracker.__setattr__(k, v)
 
-            if debug_flag:
-                print('{}: {}'.format(k, ['{:.2f}'.format(p) for p in v.flatten()]))
+            # if debug_flag:
+            #     print('{}: {}'.format(k, ['{:.2f}'.format(p) for p in v.flatten()]))
 
             if k == 'aw':
                 tracker.__setattr__('depl_root', tracker.aw / 2)
