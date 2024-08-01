@@ -10,6 +10,9 @@ from swim.input import SamplePlots
 
 import matplotlib.pyplot as plt
 
+from scipy.optimize import minimize, Bounds
+import random
+
 
 def optimize_fields(ini_path, debug_flag=False):
     start_time = time.time()
@@ -126,7 +129,7 @@ def run_fields(ini_path, debug_flag=False):
         end_time = time.time()
         print('\nExecution time: {:.2f} seconds'.format(end_time - start_time))
 
-    # debug returns a dataframe
+    # debug_flag=true returns a dataframe
     if debug_flag:
 
         targets = fields.input['order']
@@ -180,6 +183,169 @@ def run_fields(ini_path, debug_flag=False):
             # print('{}: RMSE SWE: {:.4f}\n'.format(fid, rmse))
             rmse_swe.append(rmse)
         return rmse_cap, rmse_swe
+
+
+def run_fields_opt(pars):
+    """ Variation on run_fields above, to be used with scipy.optimize.minimize.
+
+    Main differences:
+    - Pass parameters directly into the function, without changing params.csv - Can I do this?
+    - Runs for a single field. - How do I change which field?
+    """
+    project = 'tongue'
+    direc = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/{}'.format(project_)
+    ini_path = os.path.join(direc, '{}_swim.toml'.format(project))
+
+    debug_flag = True
+
+    start_time = time.time()
+
+    config = ProjectConfig()
+    config.read_config(ini_path)
+
+    fields = SamplePlots()
+    fields.initialize_plot_data(config)
+
+    # print(fields.input['time_series'])  # way too long
+
+    # How to pare back the number of fields run?
+
+    # Get parameters from params.csv
+    proj_dir = os.path.dirname(ini_path)
+    p_file = os.path.join(proj_dir, "params.csv")
+
+    ps = {}
+    with open(p_file) as file:
+        for line in file:
+            k, v = line.split(',')[0], line.split(',')[1]
+            ps[k] = v
+    ps.pop('Unnamed: 0', None)  # Artifact of pandas
+    # print(ps)
+
+    # Update parameters for a single field
+    fid = fields.input['order'][0]  # defining the single field
+    par_names = ['aw', 'rew', 'tew', 'ndvi_alpha', 'ndvi_beta', 'mad', 'swe_alpha', 'swe_beta']
+    # par_names = p_dict.keys()
+    for i in range(8):
+        k = par_names[i] + '_' + fid
+        ps[k] = pars[i]
+
+    # Run model (all fields, for now)
+    df = obs_field_cycle.field_day_loop(config, fields, debug_flag=debug_flag, params=ps)
+
+    # calculate rmse
+    pred_et = df[fid]['et_act'].values
+
+    obs_et = os.path.join(proj_dir, 'obs/obs_eta_{}.np'.format(fid))
+    obs_et = np.loadtxt(obs_et)
+    cols = ['et_obs'] + list(df[fid].columns)
+    df[fid]['et_obs'] = obs_et
+    df[fid] = df[fid][cols]
+    a = df[fid].loc['2010-01-01': '2021-01-01']
+
+    comp = pd.DataFrame(data=np.vstack([obs_et, pred_et]).T, columns=['obs', 'pred'], index=df[fid].index)
+    comp['eq'] = comp['obs'] == comp['pred']
+    comp['capture'] = df[fid]['capture']
+
+    rmse = np.sqrt(((pred_et - obs_et) ** 2).mean())
+    end_time = time.time()
+
+    print('Execution time: {:.2f} seconds'.format(end_time - start_time))
+    print(pars)
+
+    # # print('{}: Mean Obs: {:.2f}, Mean Pred: {:.2f}'.format(fid, obs_et.mean(), pred_et.mean()))
+    # # print('{}: RMS Diff: {:.4f}'.format(fid, rmse))
+
+    comp = comp.loc[a[a['capture'] == 1.0].index]
+    pred_et, obs_et = comp['pred'], comp['obs']
+    rmse_cap = np.sqrt(((pred_et - obs_et) ** 2).mean())
+    print('RMSE Capture Dates: {:.4f}'.format(rmse_cap))
+
+    obs_swe = os.path.join(proj_dir, 'obs/obs_swe_{}.np'.format(fid))
+    obs_swe = np.loadtxt(obs_swe)
+    cols = ['swe_obs'] + list(df[fid].columns)
+    df[fid]['swe_obs'] = obs_swe
+    df[fid] = df[fid][cols]
+    swe_df = df[fid].loc['2010-01-01': '2021-01-01'][['swe_obs', 'swe']]
+    swe_df.dropna(axis=0, inplace=True)
+    pred_swe = swe_df['swe'].values
+    obs_swe = swe_df['swe_obs'].values
+    rmse_swe = np.sqrt(((pred_swe - obs_swe) ** 2).mean())
+    print('RMSE SWE: {:.4f}'.format(rmse_swe))
+
+    rmse = 5*rmse_cap + rmse_swe
+    print("Total RMSE: {:.4f}".format(rmse))
+    return rmse
+
+
+def run_fields_opt_1(pars):
+    """ Variation on run_fields above, to be used with scipy.optimize.minimize.
+
+    Main differences:
+    - Pass parameters directly into the function, without changing params.csv - Can I do this?
+    - Runs for a single field. - How do I change which field?
+    """
+    project = 'tongue'
+    direc = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/{}'.format(project_)
+    ini_path = os.path.join(direc, '{}_swim.toml'.format(project))
+
+    debug_flag = True
+
+    start_time = time.time()
+
+    # Update parameters for a single field
+    par_names = ['aw', 'rew', 'tew', 'ndvi_alpha', 'ndvi_beta', 'mad', 'swe_alpha', 'swe_beta']
+    # par_names = p_dict.keys()
+    for i in range(8):
+        k = par_names[i] + '_' + fid
+        ps[k] = pars[i]
+
+    # Run model (all fields, for now)
+    df = obs_field_cycle.field_day_loop(config, fields, debug_flag=debug_flag, params=ps)
+
+    # calculate rmse
+    pred_et = df[fid]['et_act'].values
+
+    obs_et = os.path.join(proj_dir, 'obs/obs_eta_{}.np'.format(fid))
+    obs_et = np.loadtxt(obs_et)
+    cols = ['et_obs'] + list(df[fid].columns)
+    df[fid]['et_obs'] = obs_et
+    df[fid] = df[fid][cols]
+    a = df[fid].loc['2010-01-01': '2021-01-01']
+
+    comp = pd.DataFrame(data=np.vstack([obs_et, pred_et]).T, columns=['obs', 'pred'], index=df[fid].index)
+    comp['eq'] = comp['obs'] == comp['pred']
+    comp['capture'] = df[fid]['capture']
+
+    rmse = np.sqrt(((pred_et - obs_et) ** 2).mean())
+    end_time = time.time()
+
+    print('Execution time: {:.2f} seconds'.format(end_time - start_time))
+    print(pars)
+
+    # # print('{}: Mean Obs: {:.2f}, Mean Pred: {:.2f}'.format(fid, obs_et.mean(), pred_et.mean()))
+    # # print('{}: RMS Diff: {:.4f}'.format(fid, rmse))
+
+    comp = comp.loc[a[a['capture'] == 1.0].index]
+    pred_et, obs_et = comp['pred'], comp['obs']
+    rmse_cap = np.sqrt(((pred_et - obs_et) ** 2).mean())
+    print('RMSE Capture Dates: {:.4f}'.format(rmse_cap))
+
+    obs_swe = os.path.join(proj_dir, 'obs/obs_swe_{}.np'.format(fid))
+    obs_swe = np.loadtxt(obs_swe)
+    cols = ['swe_obs'] + list(df[fid].columns)
+    df[fid]['swe_obs'] = obs_swe
+    df[fid] = df[fid][cols]
+    swe_df = df[fid].loc['2010-01-01': '2021-01-01'][['swe_obs', 'swe']]
+    swe_df.dropna(axis=0, inplace=True)
+    pred_swe = swe_df['swe'].values
+    obs_swe = swe_df['swe_obs'].values
+    rmse_swe = np.sqrt(((pred_swe - obs_swe) ** 2).mean())
+    print('RMSE SWE: {:.4f}'.format(rmse_swe))
+
+    rmse = 5*rmse_cap + rmse_swe
+    print("Total RMSE: {:.4f}".format(rmse))
+    return rmse
 
 
 def update_params(path, nps, num_targets):
@@ -282,26 +448,6 @@ def sensitivity(path, ps, targets, ini_path, l_bound, u_bound, save=False, plot_
         np.savetxt(os.path.join(path, 'sensitivity_base_params.txt'), ps)
 
     if plot_tar:
-        # plt.figure()
-        # plt.suptitle(targets[plot_tar])
-        # for i in range(8):
-        #     p = ip_dict[i]
-        #     plt.subplot(2, 4, i + 1)
-        #     plt.xlabel(p)
-        #     if i >= 6:  # swe
-        #         plt.ylabel('RMSE for SWE')
-        #         plt.plot(sens[i], es_swe[i, :, plot_tar])
-        #         plt.scatter(ps[i], ce_swe[plot_tar], zorder=3)
-        #         plt.ylim(np.min(es_swe), np.max(es_swe))
-        #     else:  # et
-        #         plt.ylabel('RMSE for ET on Capture Dates')
-        #         plt.plot(sens[i], es_cap[i, :, plot_tar])
-        #         plt.scatter(ps[i], ce_cap[plot_tar], zorder=3)
-        #         plt.ylim(np.min(es_cap), np.max(es_cap))
-        #     plt.yscale('log')
-        #     plt.grid(zorder=-2)
-        # # plt.tight_layout()  # Why is this so bad?
-        # # plt.show()
         which_tar = plot_tar - 1
         plt.figure()
         plt.suptitle("Field: {}".format(targets[which_tar]))
@@ -311,30 +457,25 @@ def sensitivity(path, ps, targets, ini_path, l_bound, u_bound, save=False, plot_
             plt.xlabel(p)
             if i < 6:  # swe
                 plt.ylabel('RMSE for ET on Capture Dates')
-                # plt.scatter(ps[i], ce_cap[which_tar], zorder=3,
-                #             label='Base Value: {:.2f}, RMSE: {:.2f}'.format(ps[i], ce_cap[which_tar]))
                 plt.vlines(ps[i], np.min(es_cap), np.max(es_cap), label='Base Value: {:.2f}'.format(ps[i]),
                            colors='tab:grey', linestyles='dashed')
                 plt.hlines(ce_cap[which_tar], lb[i], ub[i], label='RMSE: {:.2f}'.format(ce_cap[which_tar]),
                            colors='tab:orange', linestyles='dashed')
                 plt.plot(sens[i], es_cap[i, :, which_tar])
-                plt.scatter(ps[i], ce_cap[which_tar], zorder=3)  # , label='Base Value: {:.2f}'.format(ps[i]))
+                plt.scatter(ps[i], ce_cap[which_tar], zorder=3)
                 plt.xlim(lb[i], ub[i])
                 plt.ylim(np.min(es_cap), np.max(es_cap))
             else:  # et
                 plt.ylabel('RMSE for SWE')
-                # plt.scatter(ps[i], ce_swe[which_tar], zorder=3,
-                #             label='Base Value: {:.2f}, RMSE: {:.2f}'.format(ps[i], ce_swe[which_tar]))
                 plt.vlines(ps[i], np.min(es_swe), np.max(es_swe), label='Base Value: {:.2f}'.format(ps[i]),
                            colors='tab:grey', linestyles='dashed')
                 plt.hlines(ce_swe[which_tar], lb[i], ub[i], label='RMSE: {:.2f}'.format(ce_swe[which_tar]),
                            colors='tab:orange', linestyles='dashed')
                 plt.plot(sens[i], es_swe[i, :, which_tar])
-                plt.scatter(ps[i], ce_swe[which_tar], zorder=3)  # , label='Base Value: {:.2f}'.format(ps[i]))
+                plt.scatter(ps[i], ce_swe[which_tar], zorder=3)
                 plt.xlim(lb[i], ub[i])
                 plt.ylim(np.min(es_swe), np.max(es_swe))
                 plt.yscale('log')
-            # plt.yscale('log')
             plt.grid(zorder=-2)
             plt.legend()
 
@@ -414,19 +555,84 @@ if __name__ == '__main__':
 
     # Declare parameters (change params.csv)
     # new_params = [145.0, 3.0, 18.0, 0.2, 1.25, 0.6, 0.07, 1.0]  # original values
-    new_params = [145.0, 3.0, 18.0, 0.0, 1.25, 0.6, 0.5, 1.0]
+    new_params = np.asarray([145.0, 3.0, 18.0, 0.0, 1.25, 0.6, 0.5, 1.0])
 
     # # Testing a single run
-    # update_params(d, new_params, len(tars))
+    update_params(d, new_params, len(tars))
     # run_fields(ini_path=ini, debug_flag=True)
+
+    # random starting point.
+    random.seed(23)
+    first_params = np.asarray([lb[i] + random.random() * (ub[i] - lb[i]) for i in range(8)])
+
+    # setup
+    config = ProjectConfig()
+    config.read_config(ini)
+    fields = SamplePlots()
+    fields.initialize_plot_data(config)
+    # declaring single field
+    fid = fields.input['order'][0]
+    # Can I change only fields? - Yes, that appears to work! I did also change a line in the obs_field_cycle code.
+    # "cropping" input dictionaries
+    fields.input['props'] = {fid: fields.input['props'][fid]}
+    fields.input['irr_data'] = {fid: fields.input['irr_data'][fid]}
+    fields.input['order'] = [fid]
+    # the last one would need to cut short the list of variables at the deepest level of the dictionary...
+    # fields.input['time_series'] =
+    for k1, v1 in fields.input['time_series'].items():
+        for k2, v2 in v1.items():
+            if k2 != 'doy':
+                fields.input['time_series'][k1][k2] = [v2[0]]
+    # Get parameters from params.csv
+    proj_dir = os.path.dirname(ini)
+    p_file = os.path.join(proj_dir, "params.csv")
+    ps = {}
+    with open(p_file) as file:
+        for line in file:
+            k, v = line.split(',')[0], line.split(',')[1]
+            ps[k] = v
+    ps.pop('Unnamed: 0', None)  # Artifact of pandas
+    # print(ps)
+
+    print("all fields:")
+    run_fields_opt(new_params)
+    print()
+
+    print("one field:")
+    run_fields_opt_1(new_params)
+    print()
 
     # Sensitivity Analyses
     # one_param_sensitivity(d, new_params, 'ndvi_alpha', tars, ini, p_dict, lb, ub)
-    sensitivity(d, new_params, tars, ini, lb, ub, save=True, n_sens=3)
-    plot_things(d, tars, 0, lb, ub)
+    # sensitivity(d, new_params, tars, ini, lb, ub, save=True, n_sens=5)
+    # plot_things(d, tars, 0, lb, ub)
 
     # # Plot all targets
     # for i in range(len(tars)):
     #     plot_things(d, tars, i, lb, ub)
+
+    # trying to use optimization
+    # I need to be doing this individually for each field? Yup.
+    # SO take the function and return a single value (combine cap and swe rmse's, how?)
+    # what function should I be using? - it should take the initial guess, and return the rmse value to optimize.
+
+    big_start_time = time.time()
+
+    # what is the default tolerance?
+    res = minimize(run_fields_opt_1, x0=first_params, method='Nelder-Mead', bounds=Bounds(lb=lb, ub=ub), tol=2,
+                   options={'disp': True, 'maxiter': 200})
+    # 'maxiter': 100  # This works, it just seems like a very crude way of stopping it.
+    # 'fatol': 0.01  # This does not seem to be doing anything. even with a value of 1, it runs forever.
+    #  'return_all': True  # This causes function to return an array of all of the simplexes at the end.
+    # What tolerance is being set? 1 seems too high, but it is stabilizing at a function value aroung 10.11,
+    # out to 2 decimal places.
+    big_end_time = time.time()
+    print()
+    print("Time to run: {:.2f}".format(big_end_time - big_start_time))
+    print("Results: ")
+    print(res)
+
+    # outer loop with fields and config files?
+    # then calibrate model for each field using minimize.
 
     plt.show()

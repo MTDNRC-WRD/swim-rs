@@ -71,15 +71,16 @@ def field_day_loop(config, plots, debug_flag=False, params=None):
         for k, f in config.calibration_files.items():
 
             group, fid = '_'.join(k.split('_')[:-1]), k.split('_')[-1]
-            idx = plots.input['order'].index(fid)
+            if fid in plots.input['order']:  # added to be able to single out a field.
+                idx = plots.input['order'].index(fid)
 
-            if params:
-                value = params[k]
-            else:
-                v = pd.read_csv(f, index_col=None, header=0)
-                value = v.loc[0, '1']
+                if params:
+                    value = params[k]
+                else:
+                    v = pd.read_csv(f, index_col=None, header=0)
+                    value = v.loc[0, '1']
 
-            cal_arr[group][0, idx] = value
+                cal_arr[group][0, idx] = value
 
         for k, v in cal_arr.items():
 
