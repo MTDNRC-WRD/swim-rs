@@ -9,6 +9,7 @@ import geopandas as gpd
 from rasterstats import zonal_stats
 from detecta import detect_cusum, detect_peaks, detect_onset
 
+from prep import info
 
 def landsat_time_series_image(in_shp, tif_dir, years, out_csv, out_csv_ct, min_ct=100):
     """
@@ -423,15 +424,24 @@ def flatten_list(lst):
 
 if __name__ == '__main__':
 
-    d = '/media/research/IrrigationGIS/swim'
-    if not os.path.exists(d):
-        d = d = '/home/dgketchum/data/IrrigationGIS/swim'
+    # d = '/media/research/IrrigationGIS/swim'
+    # if not os.path.exists(d):
+    #     d = '/home/dgketchum/data/IrrigationGIS/swim'
 
-    project = 'flux'
+    # d = 'C:/Users/CND571/Documents/Data/swim'
+    # d = 'C:/Users/CND571/Documents/Data/swim/examples/haugen/gis/029_Flathead_Fields_Subset.shp'
+
+    # project = 'haugen'
+    project = info.project_name
     dtype = 'extracts'
 
-    project_ws = os.path.join(d, 'examples', project)
-    tables = os.path.join(project_ws, 'landsat', 'tables')
+    # project_ws = os.path.join(d, 'examples', project)
+    project_ws = info.d
+    shp = info.fields_shp
+    tables = os.path.join(project_ws, 'met_timeseries', 'landsat', 'tables')
+
+    if not os.path.exists(tables):
+        os.mkdir(tables)
 
     types_ = ['inv_irr', 'irr']
     sensing_params = ['ndvi', 'etf']
@@ -439,24 +449,21 @@ if __name__ == '__main__':
     for mask_type in types_:
 
         for sensing_param in sensing_params:
-            yrs = [x for x in range(2000, 2021)]
-            shp = os.path.join(project_ws, 'gis', '{}_fields.shp'.format(project))
+            yrs = [x for x in range(1987, 2024)]
 
-            ee_data, src = None, None
-
-            ee_data = os.path.join(project_ws, 'landsat', dtype, sensing_param, mask_type)
+            ee_data = os.path.join(project_ws, 'met_timeseries', 'landsat', dtype, sensing_param, mask_type)
             src = os.path.join(tables, '{}_{}_{}.csv'.format(project, sensing_param, mask_type))
             src_ct = os.path.join(tables, '{}_{}_{}_ct.csv'.format(project, sensing_param, mask_type))
 
             # landsat_time_series_station(shp, ee_data, yrs, src, src_ct)
-            # landsat_time_series_multipolygon(shp, ee_data, yrs, src, src_ct)
+            landsat_time_series_multipolygon(shp, ee_data, yrs, src, src_ct)
             # landsat_time_series_image(shp, tif, yrs, src, src_ct)
 
-    dst_ = os.path.join(project_ws, 'landsat', '{}_sensing.csv'.format(project))
-    # join_remote_sensing(tables, dst_)
+    dst_ = os.path.join(project_ws, 'met_timeseries', 'landsat', '{}_sensing.csv'.format(project))
+    join_remote_sensing(tables, dst_)
 
     irr_ = os.path.join(project_ws, 'properties', '{}_irr.csv'.format(project))
-    js_ = os.path.join(project_ws, 'landsat', '{}_cuttings.json'.format(project))
+    js_ = os.path.join(project_ws, 'met_timeseries', 'landsat', '{}_cuttings.json'.format(project))
     detect_cuttings(dst_, irr_, irr_threshold=0.1, out_json=js_)
 
 # ========================= EOF ================================================================================

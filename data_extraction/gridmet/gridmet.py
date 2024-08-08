@@ -14,6 +14,7 @@ import pynldas2 as nld
 from rasterstats import zonal_stats
 
 from data_extraction.gridmet.thredds import GridMet
+# import chmdata  # this is not working... why?
 
 CLIMATE_COLS = {
     'etr': {
@@ -123,6 +124,7 @@ def find_gridmet_points(fields, gridmet_points, gridmet_ras, fields_join,
                 stats = zonal_stats(gdf, r, stats=['mean'])[0]['mean']
                 gridmet_targets[closest_fid][month].update({_var: stats})
 
+        # g = chmdata
         g = GridMet('elev', lat=field['LAT'], lon=field['LON'])
         elev = g.get_point_elevation()
         fields.at[i, 'ELEV'] = elev
@@ -162,7 +164,8 @@ def download_gridmet(fields, gridmet_factors, gridmet_csv_dir, start=None, end=N
         if target_fields and k not in target_fields:
             continue
 
-        g_fid = str(int(v['GFID']))
+        # g_fid = str(int(v['GFID']))
+        g_fid = str(v['GFID'])
 
         if g_fid in downloaded.keys():
             downloaded[g_fid].append(k)
@@ -335,5 +338,9 @@ def wind_height_adjust(uz, zw):
 
 
 if __name__ == '__main__':
+    # print(chmdata.thredds)
+    # print(chmdata.__init__)
+    # print(dir(chmdata))
+    # print(chmdata.__file__)
     pass
 # ========================= EOF ====================================================================

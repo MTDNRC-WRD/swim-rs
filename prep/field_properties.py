@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
+from prep import info
+
 
 def write_field_properties(shp, irr, cdl, ssurgo, landfire, js, index_col='FID'):
     irr = pd.read_csv(irr, index_col=index_col)
@@ -64,17 +66,20 @@ def write_field_properties(shp, irr, cdl, ssurgo, landfire, js, index_col='FID')
 
 
 if __name__ == '__main__':
-    d = '/media/research/IrrigationGIS/swim'
+    # d = 'C:/Users/CND571/Documents/Data/swim'
+    # project = 'haugen'
+    # project_ws = os.path.join(d, 'examples', project)
+    # fields_shp = os.path.join(project_ws, 'gis', '029_Flathead_Fields_Subset.shp')
+    # fields_shp = os.path.join(project_ws, 'gis', '{}_fields.shp'.format(project))
 
-    project = 'tongue'
-    project_ws = os.path.join(d, 'examples', project)
-
-    fields_shp = os.path.join(project_ws, 'gis', '{}_fields.shp'.format(project))
+    project = info.project_name
+    project_ws = info.d
+    fields_shp = info.fields_shp
 
     irr_ = os.path.join(project_ws, 'properties', '{}_irr.csv'.format(project))
     cdl_ = os.path.join(project_ws, 'properties', '{}_cdl.csv'.format(project))
     _ssurgo = os.path.join(project_ws, 'properties', '{}_ssurgo.csv'.format(project))
-    _landfire = os.path.join(project_ws, 'properties', '{}_landfire.csv'.format(project))
+    _landfire = os.path.join(project_ws, 'properties', '{}_landfire.csv'.format(project))  # apprently can't get rid of?
     jsn = os.path.join(project_ws, 'properties', '{}_props.json'.format(project))
 
     write_field_properties(fields_shp, irr_, cdl_, _ssurgo, _landfire, jsn, index_col='FID')

@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize, Bounds
 import random
 
+from prep import info
 
 def optimize_fields(ini_path, debug_flag=False):
     start_time = time.time()
@@ -542,8 +543,10 @@ def plot_things(file_dir, targets, which_tar, l_bound, u_bound):
 
 
 if __name__ == '__main__':
-    project_ = 'tongue'
-    d = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/{}'.format(project_)
+    # project_ = 'tongue'
+    # d = 'C:/Users/CND571/PycharmProjects/swim-rs/examples/{}'.format(project_)
+    project_ = info.project_name
+    d = info.d
     ini = os.path.join(d, '{}_swim.toml'.format(project_))
 
     # Warning: order in file is not printed order.
@@ -555,59 +558,59 @@ if __name__ == '__main__':
 
     # Declare parameters (change params.csv)
     # new_params = [145.0, 3.0, 18.0, 0.2, 1.25, 0.6, 0.07, 1.0]  # original values
-    new_params = np.asarray([145.0, 3.0, 18.0, 0.0, 1.25, 0.6, 0.5, 1.0])
+    # new_params = np.asarray([145.0, 3.0, 18.0, 0.0, 1.25, 0.6, 0.5, 1.0])
 
     # # Testing a single run
-    update_params(d, new_params, len(tars))
-    # run_fields(ini_path=ini, debug_flag=True)
+    # update_params(d, new_params, len(tars))
+    run_fields(ini_path=ini, debug_flag=True)
 
-    # random starting point.
-    random.seed(23)
-    first_params = np.asarray([lb[i] + random.random() * (ub[i] - lb[i]) for i in range(8)])
-
-    # setup
-    config = ProjectConfig()
-    config.read_config(ini)
-    fields = SamplePlots()
-    fields.initialize_plot_data(config)
-    # declaring single field
-    fid = fields.input['order'][0]
-    # Can I change only fields? - Yes, that appears to work! I did also change a line in the obs_field_cycle code.
-    # "cropping" input dictionaries
-    fields.input['props'] = {fid: fields.input['props'][fid]}
-    fields.input['irr_data'] = {fid: fields.input['irr_data'][fid]}
-    fields.input['order'] = [fid]
-    # the last one would need to cut short the list of variables at the deepest level of the dictionary...
-    # fields.input['time_series'] =
-    for k1, v1 in fields.input['time_series'].items():
-        for k2, v2 in v1.items():
-            if k2 != 'doy':
-                fields.input['time_series'][k1][k2] = [v2[0]]
-    # Get parameters from params.csv
-    proj_dir = os.path.dirname(ini)
-    p_file = os.path.join(proj_dir, "params.csv")
-    ps = {}
-    with open(p_file) as file:
-        for line in file:
-            k, v = line.split(',')[0], line.split(',')[1]
-            ps[k] = v
-    ps.pop('Unnamed: 0', None)  # Artifact of pandas
-    # print(ps)
-
-    print("all fields:")
-    run_fields_opt(new_params)
-    print()
-
-    print("one field:")
-    run_fields_opt_1(new_params)
-    print()
+    # # random starting point.
+    # random.seed(23)
+    # first_params = np.asarray([lb[i] + random.random() * (ub[i] - lb[i]) for i in range(8)])
+    #
+    # # setup
+    # config = ProjectConfig()
+    # config.read_config(ini)
+    # fields = SamplePlots()
+    # fields.initialize_plot_data(config)
+    # # declaring single field
+    # fid = fields.input['order'][0]
+    # # Can I change only fields? - Yes, that appears to work! I did also change a line in the obs_field_cycle code.
+    # # "cropping" input dictionaries
+    # fields.input['props'] = {fid: fields.input['props'][fid]}
+    # fields.input['irr_data'] = {fid: fields.input['irr_data'][fid]}
+    # fields.input['order'] = [fid]
+    # # the last one would need to cut short the list of variables at the deepest level of the dictionary...
+    # # fields.input['time_series'] =
+    # for k1, v1 in fields.input['time_series'].items():
+    #     for k2, v2 in v1.items():
+    #         if k2 != 'doy':
+    #             fields.input['time_series'][k1][k2] = [v2[0]]
+    # # Get parameters from params.csv
+    # proj_dir = os.path.dirname(ini)
+    # p_file = os.path.join(proj_dir, "params.csv")
+    # ps = {}
+    # with open(p_file) as file:
+    #     for line in file:
+    #         k, v = line.split(',')[0], line.split(',')[1]
+    #         ps[k] = v
+    # ps.pop('Unnamed: 0', None)  # Artifact of pandas
+    # # print(ps)
+    #
+    # print("all fields:")
+    # run_fields_opt(new_params)
+    # print()
+    #
+    # print("one field:")
+    # run_fields_opt_1(new_params)
+    # print()
 
     # Sensitivity Analyses
     # one_param_sensitivity(d, new_params, 'ndvi_alpha', tars, ini, p_dict, lb, ub)
     # sensitivity(d, new_params, tars, ini, lb, ub, save=True, n_sens=5)
     # plot_things(d, tars, 0, lb, ub)
 
-    # # Plot all targets
+    # # Plot all targets/fields
     # for i in range(len(tars)):
     #     plot_things(d, tars, i, lb, ub)
 
@@ -616,21 +619,20 @@ if __name__ == '__main__':
     # SO take the function and return a single value (combine cap and swe rmse's, how?)
     # what function should I be using? - it should take the initial guess, and return the rmse value to optimize.
 
-    big_start_time = time.time()
-
-    # what is the default tolerance?
-    res = minimize(run_fields_opt_1, x0=first_params, method='Nelder-Mead', bounds=Bounds(lb=lb, ub=ub), tol=2,
-                   options={'disp': True, 'maxiter': 200})
-    # 'maxiter': 100  # This works, it just seems like a very crude way of stopping it.
-    # 'fatol': 0.01  # This does not seem to be doing anything. even with a value of 1, it runs forever.
-    #  'return_all': True  # This causes function to return an array of all of the simplexes at the end.
-    # What tolerance is being set? 1 seems too high, but it is stabilizing at a function value aroung 10.11,
-    # out to 2 decimal places.
-    big_end_time = time.time()
-    print()
-    print("Time to run: {:.2f}".format(big_end_time - big_start_time))
-    print("Results: ")
-    print(res)
+    # big_start_time = time.time()
+    # # what is the default tolerance?
+    # res = minimize(run_fields_opt_1, x0=first_params, method='Nelder-Mead', bounds=Bounds(lb=lb, ub=ub), tol=2,
+    #                options={'disp': True, 'maxiter': 200})
+    # # 'maxiter': 100  # This works, it just seems like a very crude way of stopping it.
+    # # 'fatol': 0.01  # This does not seem to be doing anything. even with a value of 1, it runs forever.
+    # #  'return_all': True  # This causes function to return an array of all of the simplexes at the end.
+    # # What tolerance is being set? 1 seems too high, but it is stabilizing at a function value aroung 10.11,
+    # # out to 2 decimal places.
+    # big_end_time = time.time()
+    # print()
+    # print("Time to run: {:.2f}".format(big_end_time - big_start_time))
+    # print("Results: ")
+    # print(res)
 
     # outer loop with fields and config files?
     # then calibrate model for each field using minimize.

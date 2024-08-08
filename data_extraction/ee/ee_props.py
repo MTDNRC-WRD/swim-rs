@@ -1,4 +1,10 @@
+import os
 import ee
+
+from prep import info
+from data_extraction.ee.ee_utils import is_authorized
+from etf_export import clustered_field_etf
+from ndvi_export import clustered_field_ndvi
 
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 
@@ -13,7 +19,7 @@ CLAY = 'projects/openet/soil/ssurgo_Clay_WTA_0to152cm_composite'
 SAND = 'projects/openet/soil/ssurgo_Sand_WTA_0to152cm_composite'
 
 
-def get_cdl(fields, desc, selector='FID'):
+def get_cdl(fields, desc, bucket, selector='FID'):
     plots = ee.FeatureCollection(fields)
     crops, first = None, True
     cdl_years = [x for x in range(2008, 2023)]
@@ -40,7 +46,7 @@ def get_cdl(fields, desc, selector='FID'):
     task = ee.batch.Export.table.toCloudStorage(
         modes,
         description=out_,
-        bucket='wudr',
+        bucket=bucket,
         fileNamePrefix=out_,
         fileFormat='CSV',
         selectors=_selectors)
@@ -48,11 +54,11 @@ def get_cdl(fields, desc, selector='FID'):
     task.start()
 
 
-def get_irrigation(fields, desc, debug=False, selector='FID'):
+def get_irrigation(fields, desc, bucket, debug=False, selector='FID'):
     plots = ee.FeatureCollection(fields)
     irr_coll = ee.ImageCollection(IRR)
 
-    _selectors = [selector, 'LAT', 'LON']
+    _selectors = [selector, 'LAT', 'LON']  # do I need lat and lon?
     first = True
 
     area, irr_img = ee.Image.pixelArea(), None
@@ -83,7 +89,7 @@ def get_irrigation(fields, desc, debug=False, selector='FID'):
     task = ee.batch.Export.table.toCloudStorage(
         means,
         description=desc,
-        bucket='wudr',
+        bucket=bucket,
         fileNamePrefix=desc,
         fileFormat='CSV',
         selectors=_selectors)
@@ -91,7 +97,7 @@ def get_irrigation(fields, desc, debug=False, selector='FID'):
     task.start()
 
 
-def get_ssurgo(fields, desc, debug=False, selector='FID'):
+def get_ssurgo(fields, desc, bucket, debug=False, selector='FID'):
     plots = ee.FeatureCollection(fields)
 
     ksat = ee.Image(KSAT).select('b1').rename('ksat')
@@ -113,7 +119,7 @@ def get_ssurgo(fields, desc, debug=False, selector='FID'):
     task = ee.batch.Export.table.toCloudStorage(
         means,
         description=desc,
-        bucket='wudr',
+        bucket=bucket,
         fileNamePrefix=desc,
         fileFormat='CSV',
         selectors=_selectors)
@@ -122,7 +128,7 @@ def get_ssurgo(fields, desc, debug=False, selector='FID'):
     print(desc)
 
 
-def get_landfire(fields, desc, debug=False, selector='FID'):
+def get_landfire(fields, desc, bucket, debug=False, selector='FID'):
     plots = ee.FeatureCollection(fields)
 
     height = ee.ImageCollection('LANDFIRE/Vegetation/EVH/v1_4_0').select('EVH').first().rename('plant_height')
@@ -141,7 +147,7 @@ def get_landfire(fields, desc, debug=False, selector='FID'):
     task = ee.batch.Export.table.toCloudStorage(
         means,
         description=desc,
-        bucket='wudr',
+        bucket=bucket,
         fileNamePrefix=desc,
         fileFormat='CSV',
         selectors=_selectors)
@@ -153,20 +159,38 @@ def get_landfire(fields, desc, debug=False, selector='FID'):
 if __name__ == '__main__':
     ee.Initialize()
 
-    project = 'flux'
-    index_col = 'field_1'
-    fields_ = 'users/dgketchum/fields/flux'
+    d = 'C:/Users/CND571/Documents/Data/swim'
 
-    description = '{}_cdl'.format(project)
-    get_cdl(fields_, description, selector=index_col)
+    # bucket_ = 'mt_cu_2024'
+    # project_ = 'haugen'
+    # index_col = 'FID'
+    # fields_ = 'projects/ee-hehaugen/assets/029_Flathead_Fields_Subset'
+    bucket_ = info.gcs_bucket
+    project_ = info.project_name
+    index_col = info.index_col
+    fields_ = info.ee_fields
 
-    description = '{}_irr'.format(project)
-    get_irrigation(fields_, description, debug=False, selector=index_col)
+    # fields_ = 'C:/Users/CND571/Documents/Data/swim/examples/haugen/gis/029_Flathead_Fields_Subset.shp'
 
-    description = '{}_ssurgo'.format(project)
-    get_ssurgo(fields_, description, debug=False, selector=index_col)
+    description = '{}_cdl'.format(project_)
+    get_cdl(fields_, description, bucket_, selector=index_col)
 
-    description = '{}_landfire'.format(project)
-    get_landfire(fields_, description, debug=False, selector=index_col)
+    description = '{}_irr'.format(project_)
+    get_irrigation(fields_, description, bucket_, debug=False, selector=index_col)
+
+    description = '{}_ssurgo'.format(project_)
+    get_ssurgo(fields_, description, bucket_, debug=False, selector=index_col)  # soil properties!
+
+    description = '{}_landfire'.format(project_)
+    get_landfire(fields_, description, bucket_, debug=False, selector=index_col)  # What is it?
+
+    # Export 8 files per year to gcs for etf and ndvi data.
+    # For each year, ndvi and etf, irr and inv_rr, and data and pixel count. (2x2x2=8)
+    is_authorized()
+    for mask in ['inv_irr', 'irr']:
+        chk = os.path.join(d, 'examples/{}/met_timeseries/landsat/extracts/etf/{}'.format(project_, mask))
+        clustered_field_etf(fields_, project_, bucket_, debug=False, mask_type=mask, check_dir=chk)
+        chk = os.path.join(d, 'examples/{}/met_timeseries/landsat/extracts/ndvi/{}'.format(project_, mask))
+        clustered_field_ndvi(fields_, project_, bucket_, debug=False, mask_type=mask, check_dir=chk)
 
 # ========================= EOF ====================================================================

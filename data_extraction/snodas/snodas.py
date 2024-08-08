@@ -7,6 +7,7 @@ from rasterstats import zonal_stats
 
 
 def snodas_zonal_stats(in_shp, raster_dir, out_js, targets=None, index_col='FID'):
+    """ """
     df = gpd.read_file(in_shp)
     df.index = [i for i in df[index_col]]
 
@@ -35,6 +36,12 @@ def snodas_zonal_stats(in_shp, raster_dir, out_js, targets=None, index_col='FID'
         json.dump(dct, fp, indent=4)
 
     print('wrote', out_js)
+
+
+def snodas_download():
+    """ Function above takes in rasters, so I just need to get SNODAS from .tar files to .tif files, I think.
+    Use a separate project for that? Then just read in files."""
+    return 0
 
 
 if __name__ == '__main__':

@@ -1,3 +1,5 @@
+""" What is this used for? """
+
 try:
     import ujson as json
 except ImportError:

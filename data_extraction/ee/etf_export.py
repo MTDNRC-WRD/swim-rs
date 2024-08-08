@@ -1,9 +1,12 @@
+""" Options for exporting SSEBOP etf data from GEE to GCS. """
+
 import os
 import sys
 
 import ee
 import geopandas as gpd
 
+from prep import info
 from data_extraction.ee.ee_utils import is_authorized
 
 sys.path.insert(0, os.path.abspath('../..'))
@@ -164,17 +167,17 @@ def flux_tower_etf(shapefile, bucket=None, debug=False, mask_type='irr', check_d
             print(desc)
 
 
-def clustered_field_etf(feature_coll, bucket=None, debug=False, mask_type='irr', check_dir=None):
+def clustered_field_etf(feature_coll, project, bucket=None, debug=False, mask_type='irr', check_dir=None):
 
     feature_coll = ee.FeatureCollection(feature_coll)
 
-    s, e = '1987-01-01', '2021-12-31'
+    s, e = '1987-01-01', '2023-12-31'
     irr_coll = ee.ImageCollection(IRR)
     coll = irr_coll.filterDate(s, e).select('classification')
     remap = coll.map(lambda img: img.lt(1))
     irr_min_yr_mask = remap.sum().gte(5)
 
-    for year in range(1987, 2022):
+    for year in range(1987, 2024):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
                                   '{}-12-31'.format(year)).select('classification').mosaic()
@@ -205,7 +208,8 @@ def clustered_field_etf(feature_coll, bucket=None, debug=False, mask_type='irr',
 
             selectors.append(_name)
 
-            etf_img = ee.Image(os.path.join(ETF, img_id)).rename(_name)
+            full_path = '{}/{}'.format(ETF, img_id)
+            etf_img = ee.Image(full_path).rename(_name)  # fixed slash
             etf_img = etf_img.divide(10000)
 
             if mask_type == 'no_mask':
@@ -226,34 +230,50 @@ def clustered_field_etf(feature_coll, bucket=None, debug=False, mask_type='irr',
                 data = etf_img.sample(point, 30).getInfo()
                 print(data['features'])
 
-        # TODO extract pixel count to filter data
         data = bands.reduceRegions(collection=feature_coll,
                                    reducer=ee.Reducer.mean(),
                                    scale=30)
 
-        task = ee.batch.Export.table.toCloudStorage(
+        # extract pixel count to filter data
+        count = bands.reduceRegions(collection=feature_coll,
+                                    reducer=ee.Reducer.count(),
+                                    scale=30)
+
+        task1 = ee.batch.Export.table.toCloudStorage(
             data,
             description=desc,
             bucket=bucket,
-            fileNamePrefix=desc,
+            fileNamePrefix='{}/{}'.format(project, desc),
+            fileFormat='CSV',
+            selectors=selectors)
+        task2 = ee.batch.Export.table.toCloudStorage(
+            count,
+            description=desc,
+            bucket=bucket,
+            fileNamePrefix='{}/{}_ct'.format(project, desc),
             fileFormat='CSV',
             selectors=selectors)
 
-        task.start()
+        task1.start()
+        task2.start()
         print(desc)
 
 
 if __name__ == '__main__':
 
-    d = '/media/research/IrrigationGIS/swim'
-    if not os.path.exists(d):
-        d = '/home/dgketchum/data/IrrigationGIS/swim'
+    # d = '/media/research/IrrigationGIS/swim'
+    # if not os.path.exists(d):
+    #     d = '/home/dgketchum/data/IrrigationGIS/swim'
 
     is_authorized()
-    bucket_ = 'wudr'
-    fields = 'users/dgketchum/fields/tongue_9MAY2023'
+    # project_ = 'haugen'
+    # bucket_ = 'mt_cu_2024'
+    # fields = 'projects/ee-hehaugen/assets/029_Flathead_Fields_Subset'
+    project_ = info.project_name
+    bucket_ = info.gcs_bucket
+    fields = info.ee_fields
     for mask in ['inv_irr', 'irr']:
-        chk = os.path.join(d, 'examples/tongue/landsat/extracts/etf/{}'.format(mask))
-        clustered_field_etf(fields, bucket_, debug=False, mask_type=mask, check_dir=chk)
+        # chk = os.path.join(d, 'examples/tongue/landsat/extracts/etf/{}'.format(mask))
+        clustered_field_etf(fields, project_, bucket_, debug=False, mask_type=mask)
 
 # ========================= EOF ====================================================================

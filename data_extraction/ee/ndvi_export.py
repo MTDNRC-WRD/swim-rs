@@ -1,3 +1,5 @@
+""" Options for exporting SSEBOP NDVI data from GEE to GCS. """
+
 import os
 import sys
 
@@ -157,16 +159,16 @@ def flux_tower_ndvi(shapefile, bucket=None, debug=False, mask_type='irr', check_
             print(desc)
 
 
-def clustered_field_ndvi(feature_coll, bucket=None, debug=False, mask_type='irr', check_dir=None):
+def clustered_field_ndvi(feature_coll, project, bucket=None, debug=False, mask_type='irr', check_dir=None):
     feature_coll = ee.FeatureCollection(feature_coll)
 
-    s, e = '1987-01-01', '2021-12-31'
+    s, e = '1987-01-01', '2023-12-31'
     irr_coll = ee.ImageCollection(IRR)
     coll = irr_coll.filterDate(s, e).select('classification')
     remap = coll.map(lambda img: img.lt(1))
     irr_min_yr_mask = remap.sum().gte(5)
 
-    for year in range(1987, 2022):
+    for year in range(1987, 2024):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
                                   '{}-12-31'.format(year)).select('classification').mosaic()
@@ -218,34 +220,47 @@ def clustered_field_ndvi(feature_coll, bucket=None, debug=False, mask_type='irr'
                                        scale=30).getInfo()
             print(data['features'])
 
-        # TODO extract pixel count to filter data
         data = bands.reduceRegions(collection=feature_coll,
                                    reducer=ee.Reducer.mean(),
                                    scale=30)
 
-        task = ee.batch.Export.table.toCloudStorage(
+        # extract pixel count to filter data
+        count = bands.reduceRegions(collection=feature_coll,
+                                    reducer=ee.Reducer.count(),
+                                    scale=30)
+
+        task1 = ee.batch.Export.table.toCloudStorage(
             data,
             description=desc,
             bucket=bucket,
-            fileNamePrefix=desc,
+            fileNamePrefix='{}/{}'.format(project, desc),
+            fileFormat='CSV',
+            selectors=selectors)
+        task2 = ee.batch.Export.table.toCloudStorage(
+            count,
+            description=desc,
+            bucket=bucket,
+            fileNamePrefix='{}/{}_ct'.format(project, desc),
             fileFormat='CSV',
             selectors=selectors)
 
-        task.start()
+        task1.start()
+        task2.start()
         print(desc)
 
 
 if __name__ == '__main__':
 
-    d = '/media/research/IrrigationGIS/swim'
-    if not os.path.exists(d):
-        d = '/home/dgketchum/data/IrrigationGIS/swim'
+    # d = '/media/research/IrrigationGIS/swim'
+    # if not os.path.exists(d):
+    #     d = '/home/dgketchum/data/IrrigationGIS/swim'
 
     is_authorized()
-    bucket_ = 'wudr'
-    fields = 'users/dgketchum/fields/tongue_9MAY2023'
+    project_ = 'haugen'
+    bucket_ = 'mt_cu_2024'
+    fields = 'projects/ee-hehaugen/assets/029_Flathead_Fields_Subset'
     for mask in ['inv_irr', 'irr']:
-        chk = os.path.join(d, 'examples/tongue/landsat/extracts/ndvi/{}'.format(mask))
-        clustered_field_ndvi(fields, bucket_, debug=False, mask_type=mask, check_dir=chk)
+        # chk = os.path.join(d, 'examples/tongue/landsat/extracts/ndvi/{}'.format(mask))
+        clustered_field_ndvi(fields, project_, bucket_, debug=False, mask_type=mask)
 
 # ========================= EOF ====================================================================
