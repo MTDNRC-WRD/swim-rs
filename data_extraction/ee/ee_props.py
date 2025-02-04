@@ -1,5 +1,7 @@
 import ee
 
+import os
+
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 
 # See https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx
@@ -91,6 +93,47 @@ def get_irrigation(fields, desc, debug=False, selector='FID'):
     task.start()
 
 
+def get_irrigation_direct(fields, dest, debug=False, selector='FID'):
+    plots = ee.FeatureCollection(fields)
+    irr_coll = ee.ImageCollection(IRR)
+
+    _selectors = [selector, 'LAT', 'LON']
+    first = True
+
+    area, irr_img = ee.Image.pixelArea(), None
+
+    for year in range(1987, 2025):
+
+        irr = irr_coll.filterDate('{}-01-01'.format(year),
+                                  '{}-12-31'.format(year)).select('classification').mosaic()
+
+        irr = irr.lt(1)
+
+        _name = 'irr_{}'.format(year)
+        _selectors.append(_name)
+
+        if first:
+            irr_img = irr.rename(_name)
+            first = False
+        else:
+            irr_img = irr_img.addBands(irr.rename(_name))
+
+    means = irr_img.reduceRegions(collection=plots,
+                                  reducer=ee.Reducer.mean(),
+                                  scale=30)
+
+    if debug:
+        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+
+    means_df = ee.data.computeFeatures({
+        'expression': means,
+        'fileFormat': 'PANDAS_DATAFRAME'
+    })
+    f = os.path.join(dest, 'irr.csv')
+    means_df.to_csv(f)
+    print("Saved to: {}".format(f))
+
+
 def get_ssurgo(fields, desc, debug=False, selector='FID'):
     plots = ee.FeatureCollection(fields)
 
@@ -120,6 +163,34 @@ def get_ssurgo(fields, desc, debug=False, selector='FID'):
 
     task.start()
     print(desc)
+
+
+def get_ssurgo_direct(fields, dest, debug=False, selector='FID'):
+    plots = ee.FeatureCollection(fields)
+
+    ksat = ee.Image(KSAT).select('b1').rename('ksat')
+    awc = ee.Image(AWC).select('b1').rename('awc')
+    clay = ee.Image(CLAY).select('b1').rename('clay')
+    sand = ee.Image(SAND).select('b1').rename('sand')
+
+    img = ksat.addBands([awc, clay, sand])
+
+    _selectors = [selector, 'LAT', 'LON'] + ['awc', 'ksat', 'clay', 'sand']
+
+    means = img.reduceRegions(collection=plots,
+                              reducer=ee.Reducer.mean(),
+                              scale=30)
+
+    if debug:
+        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+
+    means_df = ee.data.computeFeatures({
+        'expression': means,
+        'fileFormat': 'PANDAS_DATAFRAME'
+    })
+    f = os.path.join(dest, 'ssurgo.csv')
+    means_df.to_csv(f)
+    print("Saved to: {}".format(f))
 
 
 def get_landfire(fields, desc, debug=False, selector='FID'):

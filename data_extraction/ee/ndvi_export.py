@@ -238,6 +238,90 @@ def clustered_sample_ndvi(feature_coll, bucket=None, debug=False, mask_type='irr
         print(desc)
 
 
+def clustered_sample_ndvi_direct(feature_coll, dest_dir, debug=False, mask_type='irr',
+                                 start_yr=2004, end_yr=2023, feature_id='FID', drops=None):
+    """ Process GEE SEEBOP ndvi data and save to local csv file.
+
+    Combined behavior of clustered_sample_ndvi and list_and_copy_gcs_bucket """
+    feature_coll = ee.FeatureCollection(feature_coll)
+
+    s, e = '1987-01-01', '2021-12-31'
+    irr_coll = ee.ImageCollection(IRR)
+    coll = irr_coll.filterDate(s, e).select('classification')
+    remap = coll.map(lambda img: img.lt(1))
+    irr_min_yr_mask = remap.sum().gte(5)
+
+    for year in range(start_yr, end_yr + 1):
+
+        irr = irr_coll.filterDate('{}-01-01'.format(year),
+                                  '{}-12-31'.format(year)).select('classification').mosaic()
+        irr_mask = irr_min_yr_mask.updateMask(irr.lt(1))
+
+        first, bands = True, None
+        selectors = [feature_id]
+
+        desc = 'ndvi_{}_{}'.format(mask_type, year)
+
+        f = os.path.join(dest_dir, '{}.csv'.format(desc))
+        if os.path.exists(f):
+            print(desc, 'exists, skipping')
+            continue
+
+        coll = landsat_masked(year, feature_coll).map(lambda x: x.normalizedDifference(['B5', 'B4']))
+        ndvi_scenes = coll.aggregate_histogram('system:index').getInfo()
+
+        for img_id in ndvi_scenes:
+
+            splt = img_id.split('_')
+            _name = '_'.join(splt[-3:])
+
+            selectors.append(_name)
+
+            # if splt[-1] not in ['20000514', '20000515']:
+            #     continue
+
+            nd_img = coll.filterMetadata('system:index', 'equals', img_id).first().rename(_name)
+
+            if mask_type == 'no_mask':
+                nd_img = nd_img.clip(feature_coll.geometry())
+            elif mask_type == 'irr':
+                nd_img = nd_img.clip(feature_coll.geometry()).mask(irr_mask)
+            elif mask_type == 'inv_irr':
+                nd_img = nd_img.clip(feature_coll.geometry()).mask(irr.gt(0))
+
+            if first:
+                bands = nd_img
+                first = False
+            else:
+                bands = bands.addBands([nd_img])
+
+        if debug:
+            fc = ee.FeatureCollection([feature_coll.filterMetadata(feature_id, 'equals', 2).first()])
+            data = bands.reduceRegions(collection=fc,
+                                       reducer=ee.Reducer.mean(),
+                                       scale=30).getInfo()
+            print(data['features'])
+
+        # TODO extract pixel count to filter data
+        data = bands.reduceRegions(collection=feature_coll,
+                                   reducer=ee.Reducer.mean(),
+                                   scale=30)
+
+        data_df = ee.data.computeFeatures({
+            'expression': data,
+            'fileFormat': 'PANDAS_DATAFRAME'
+        })
+
+        print(desc)
+        # Drop all columns that are not FID or a landsat image.
+        data_df.index = data_df[feature_id]
+        if drops:
+            drops.append('geo')
+            data_df.drop(columns=drops, inplace=True, errors='ignore')
+        # print(data_df.head())
+        data_df.to_csv(f)
+
+
 if __name__ == '__main__':
 
     is_authorized()
