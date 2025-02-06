@@ -18,20 +18,23 @@ from data_extraction.ee.ee_utils import is_authorized
 # 2b
 # from data_extraction.ee.snodas_export import sample_snodas_swe_direct
 # from data_extraction.snodas.snodas import create_timeseries_json
-# from data_extraction.ee.ee_props import get_irrigation_direct, get_ssurgo_direct
+from data_extraction.ee.ee_props import get_irrigation_direct, get_ssurgo_direct
 
 # Step 3 imports
 import xarray
-import xvec  # this is used, just tacked on to xarray stuff.
+import xvec  # this is used, just tacked on to xarray stuff. Needs to be imported.
 import pandas as pd
 from datetime import timedelta
 import pytz
 import pynldas2 as nld
 import numpy as np
-# from data_extraction.gridmet.thredds import GridMet, BBox
 from data_extraction.gridmet.gridmet import air_pressure, actual_vapor_pressure
-# from GRIDtools.zonal import sample_raster_points
 from chmdata.thredds import GridMet, BBox
+
+# Step 4 imports
+# 4a
+from prep.field_properties import write_field_properties_nc
+# from prep.field_timeseries import join_daily_timeseries
 
 
 def step_1():
@@ -78,6 +81,7 @@ def step_1():
 # TODO: remove hard-coded collections and use variables defined here
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 ETF = 'projects/usgs-gee-nhm-ssebop/assets/ssebop/landsat/c02'
+SWE = 'projects/earthengine-legacy/assets/projects/climate-engine/snodas/daily'
 # We must specify which column in the shapefile represents the field's unique ID, in this case it is 'FID'
 FEATURE_ID = 'FID'
 
@@ -85,26 +89,24 @@ FEATURE_ID = 'FID'
 def step_2():
     # # -------------------------------------------------
     # # Contents of step 2a
+    # Oh, this involves redoing the functions... Step 3 was a good place to start...
+    # Would Step 4 be a better place to go next?
 
     # Upload shapefile to GEE on your own
     # Can I change to using bounds, and then use xvec to get the polygon-specific stuff? - yeah, I think so.
 
-    # Change this to your own
-    ee_account = 'ee-hehaugen'
-
-    # # If you don't have gsutil, there is a workaround described below
-    # command = os.path.join(home, 'google-cloud-sdk', 'bin', 'gsutil')
-
-    # bucket = 'wudr'
     fields = 'projects/ee-hehaugen/assets/mt_sid_uy10'
 
-    etf_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'etf')
-
+    # etf_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'etf')
+    #
     # # Here, we run the clustered_field_etf function on the uploaded asset.
     #
     # # every sample is divided into a 'purely' irrigated section (i.e., 'irr') and an unirrigated one (i.e., 'inv_irr')
     # # this allows us to build a model for irrigated areas that aren't contaminated by unirrigated areas.
     # # for this tutorial, we're going to use both
+    #
+    # # ETF and NDVI are all also daily? So they should have the same coordinates as the stuff in step 3.
+    # # These are capture dates, not daily data. They are not a full time series yet. Yeah, let's continue w/ step 4...
     #
     # for mask in ['inv_irr', 'irr']:
     #
@@ -138,20 +140,21 @@ def step_2():
     #     clustered_sample_ndvi_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
     #                                  feature_id=FEATURE_ID, drops=list(gdf.columns))
 
-    # # # -------------------------------------------------
-    # # # Contents of step 2b
-    #
-    # SWE = 'projects/earthengine-legacy/assets/projects/climate-engine/snodas/daily'
-    #
-    # # let's send all the data we get to our tutorial directories
-    # snow_dst = os.path.join(root, 'examples', 'uy10', 'data', 'snodas', 'extracts')
-    # if not os.path.isdir(snow_dst):
-    #     os.makedirs(snow_dst, exist_ok=True)
-    #
-    # start_time = time.time()
-    #
-    # # 7.5 minutes for SWE and soils (i think the soils are really fast)
-    #
+    # # -------------------------------------------------
+    # # Contents of step 2b
+
+    # I've moved the snodas stuff to step 3.
+
+    # let's send all the data we get to our tutorial directories
+    snow_dst = os.path.join(root, 'examples', 'uy10', 'data', 'snodas', 'extracts')
+    if not os.path.isdir(snow_dst):
+        os.makedirs(snow_dst, exist_ok=True)
+
+    start_time = time.time()
+
+    # 7.5 minutes for SWE and soils (i think the soils are really fast)
+
+    # # Old SNODAS stuff
     # # Here, we run the sample_snodas_swe function on the uploaded asset.
     # # Note we use 'check_dir' to check if it's already written to the directory,
     # # and 'overwrite=False' so we don't write it again if it is.
@@ -159,16 +162,15 @@ def step_2():
     #
     # snow_out = os.path.join(root, 'examples/uy10/data/snodas/snodas.json')
     # create_timeseries_json(snow_dst, snow_out, feature_id=FEATURE_ID)
-    #
-    # # description = 'tutorial_irr'
-    # dst = os.path.join(root, 'examples', 'uy10', 'data', 'properties')
-    # get_irrigation_direct(fields, dst, debug=False, selector=FEATURE_ID)
-    #
-    # # description = 'tutorial_ssurgo'
-    # dst = os.path.join(root, 'examples', 'uy10', 'data', 'properties')
-    # get_ssurgo_direct(fields, dst, debug=False, selector=FEATURE_ID)
-    #
-    # print("{:.0f} seconds".format(time.time() - start_time))
+
+    # Both irr and ssurgo go to "dst"
+    dst = os.path.join(root, 'examples', 'uy10', 'data', 'properties')
+    # description = 'tutorial_irr'
+    get_irrigation_direct(fields, dst, debug=False, selector=FEATURE_ID)
+    # description = 'tutorial_ssurgo'
+    get_ssurgo_direct(fields, dst, debug=False, selector=FEATURE_ID)
+
+    print("{:.0f} seconds".format(time.time() - start_time))
 
 
 # # Step 3
@@ -220,7 +222,7 @@ def elevation_from_coordinate(lat, lon):
 
 
 def step_3():
-    """ Contents of step 3 - gridmet and NLDAS met data to NetCDF. """
+    """ Contents of step 3 - gridmet and NLDAS (and SNODAS!) met data to NetCDF. """
     all_start = time.time()
 
     gmet_list = []  # empty list for storing gridmet data for each variable.
@@ -368,6 +370,35 @@ def step_3():
     print("nldas: {:.2f} seconds".format(time.time() - start_time))
 
     ds = ds.merge(nldas)
+    # print()
+    # print(ds)
+
+    # SNODAS!
+    start_time = time.time()
+    # Open snow dataset
+    # why are there 20 fids?
+    # 6.45 seconds without dropping variables. Can I drop variables first?
+    # 0.9 seconds after dropping variables.
+    # 0.91 seconds to only do band1.
+    snow_yrs = []
+    for y in range(2005, 2024):
+        snow_yr = xarray.open_dataset("F:/snodas/netcdf2/{}WGS84MT.nc".format(y))
+        # Extract field locations
+        snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
+        snow_yr = snow_yr.drop_vars(['crs', 'Band2', 'Band3', 'Band4', 'Band5', 'Band6', 'Band7', 'Band8'])
+        snow_yrs.append(snow_yr)
+    snow = xarray.concat(snow_yrs, "time")
+    snow = snow.rename({'Band1': 'swe_m'})
+    # Mess with file so it can be saved as a netcdf.
+    snow = snow.swap_dims({"geometry": "FID"})
+    snow = snow.reset_coords("geometry", drop=True)  # Get rid of geometry index
+
+    # print()
+    # print(snow)
+    # print()
+    print("snodas: {:.2f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
+
+    ds = ds.merge(snow)  # What about the Sept-May thing?
     print()
     print(ds)
 
@@ -379,6 +410,19 @@ def step_3():
 
     print("Total Step 3 processing time: {:.2f} seconds".format(time.time() - all_start))
     # 3 minutes. Where can I save time? Make saving faster, that's the slowest bit.
+
+
+def step_4():
+    """ """
+    # input properties files
+    irr = os.path.join(root, 'examples', 'uy10', 'data', 'properties', 'irr.csv')
+    ssurgo = os.path.join(root, 'examples', 'uy10', 'data', 'properties', 'ssurgo.csv')
+
+    # joined properties file
+    properties_nc = os.path.join(root, 'examples', 'uy10', 'data', 'uy10_properties.nc')
+
+    write_field_properties_nc(shp=shapefile_path, irr=irr, ssurgo=ssurgo, nc=properties_nc, index_col='FID',
+                              shp_add=None, targets=None)
 
 
 if __name__ == '__main__':
@@ -409,5 +453,8 @@ if __name__ == '__main__':
 
     # step_2()
 
-    # step_3()
+    step_3()
+
+    # step_4()
+
 # ========================= EOF ====================================================================
