@@ -2,6 +2,8 @@ import ee
 
 import os
 
+import pandas as pd
+
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 
 # See https://websoilsurvey.nrcs.usda.gov/app/WebSoilSurvey.aspx
@@ -93,11 +95,12 @@ def get_irrigation(fields, desc, debug=False, selector='FID'):
     task.start()
 
 
-def get_irrigation_direct(fields, dest, debug=False, selector='FID'):
+def get_irrigation_direct_nc(fields, debug=False, selector='FID'):
     plots = ee.FeatureCollection(fields)
     irr_coll = ee.ImageCollection(IRR)
 
     _selectors = [selector, 'LAT', 'LON']
+    band_names = []
     first = True
 
     area, irr_img = ee.Image.pixelArea(), None
@@ -109,8 +112,9 @@ def get_irrigation_direct(fields, dest, debug=False, selector='FID'):
 
         irr = irr.lt(1)
 
-        _name = 'irr_{}'.format(year)
+        _name = 'irr_{}'.format(year)  # cannot use just the year number here, casues error.
         _selectors.append(_name)
+        band_names.append(_name)
 
         if first:
             irr_img = irr.rename(_name)
@@ -125,13 +129,31 @@ def get_irrigation_direct(fields, dest, debug=False, selector='FID'):
     if debug:
         debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
 
+    # Export dataframe
     means_df = ee.data.computeFeatures({
         'expression': means,
         'fileFormat': 'PANDAS_DATAFRAME'
     })
-    f = os.path.join(dest, 'irr.csv')
-    means_df.to_csv(f)
-    print("Saved to: {}".format(f))
+
+    # turn many columns into one for indexing, also drops extra columns
+    means_df = means_df.melt(
+        id_vars=["FID"],
+        value_vars=band_names,
+        var_name="year",
+        value_name="irr",
+    )
+
+    # remove 'irr_' from beginning of band names.
+    means_df['year'] = [int(i[-4:]) for i in means_df['year']]
+
+    # Create multiindex for xarray formatting
+    mi = pd.MultiIndex.from_frame(means_df[['FID', 'year']])
+    means_df.index = mi
+    means_df = means_df.drop(columns=['FID', 'year'])
+
+    means_xr = means_df.to_xarray()
+
+    return means_xr
 
 
 def get_ssurgo(fields, desc, debug=False, selector='FID'):
@@ -165,7 +187,7 @@ def get_ssurgo(fields, desc, debug=False, selector='FID'):
     print(desc)
 
 
-def get_ssurgo_direct(fields, dest, debug=False, selector='FID'):
+def get_ssurgo_direct_nc(fields, debug=False, selector='FID'):
     plots = ee.FeatureCollection(fields)
 
     ksat = ee.Image(KSAT).select('b1').rename('ksat')
@@ -184,13 +206,17 @@ def get_ssurgo_direct(fields, dest, debug=False, selector='FID'):
     if debug:
         debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
 
+    # Export dataframe
     means_df = ee.data.computeFeatures({
         'expression': means,
         'fileFormat': 'PANDAS_DATAFRAME'
     })
-    f = os.path.join(dest, 'ssurgo.csv')
-    means_df.to_csv(f)
-    print("Saved to: {}".format(f))
+
+    means_df.index = means_df['FID']
+    means_df = means_df[['awc', 'ksat', 'clay', 'sand']]  # drop extra columns
+    means_xr = means_df.to_xarray()
+
+    return means_xr
 
 
 def get_landfire(fields, desc, debug=False, selector='FID'):

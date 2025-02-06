@@ -12,13 +12,13 @@ import matplotlib.pyplot as plt
 # 2a
 import sys
 import ee
-# from data_extraction.ee.etf_export import clustered_sample_etf_direct
-# from data_extraction.ee.ndvi_export import clustered_sample_ndvi_direct
+from data_extraction.ee.etf_export import clustered_sample_etf_direct
+from data_extraction.ee.ndvi_export import clustered_sample_ndvi_direct
 from data_extraction.ee.ee_utils import is_authorized
 # 2b
 # from data_extraction.ee.snodas_export import sample_snodas_swe_direct
 # from data_extraction.snodas.snodas import create_timeseries_json
-from data_extraction.ee.ee_props import get_irrigation_direct, get_ssurgo_direct
+from data_extraction.ee.ee_props import get_irrigation_direct_nc, get_ssurgo_direct_nc
 
 # Step 3 imports
 import xarray
@@ -90,87 +90,58 @@ def step_2():
     # # -------------------------------------------------
     # # Contents of step 2a
     # Oh, this involves redoing the functions... Step 3 was a good place to start...
-    # Would Step 4 be a better place to go next?
+    # Would Step 4 be a better place to go next? - No, it depends on these things.
 
     # Upload shapefile to GEE on your own
     # Can I change to using bounds, and then use xvec to get the polygon-specific stuff? - yeah, I think so.
 
     fields = 'projects/ee-hehaugen/assets/mt_sid_uy10'
 
-    # etf_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'etf')
-    #
-    # # Here, we run the clustered_field_etf function on the uploaded asset.
-    #
-    # # every sample is divided into a 'purely' irrigated section (i.e., 'irr') and an unirrigated one (i.e., 'inv_irr')
-    # # this allows us to build a model for irrigated areas that aren't contaminated by unirrigated areas.
-    # # for this tutorial, we're going to use both
-    #
-    # # ETF and NDVI are all also daily? So they should have the same coordinates as the stuff in step 3.
-    # # These are capture dates, not daily data. They are not a full time series yet. Yeah, let's continue w/ step 4...
-    #
-    # for mask in ['inv_irr', 'irr']:
-    #
-    #     # the 'check_dir' will check the planned directory for the existence of the data
-    #     # if a run fails for some reason, move what is complete from the bucket to the directory, then rerun
-    #     # this will skip what's already there
-    #     chk = os.path.join(etf_dst, '{}'.format(mask))
-    #
-    #     # write the directory if it's not already there
-    #     if not os.path.exists(chk):
-    #         os.makedirs(chk, exist_ok=True)
-    #
-    #     # This has a few extra columns that might need to be dropped, but we'll see!
-    #     clustered_sample_etf_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
-    #                                 feature_id=FEATURE_ID, drops=list(gdf.columns))
-    #
-    # ndvi_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'ndvi')
-    #
-    # # Just like before, but with 'ndvi' instead of 'etf':
-    # for mask in ['inv_irr', 'irr']:
-    #
-    #     # the 'check_dir' will check the planned directory for the existence of the data
-    #     # if a run fails for some reason, move what is complete from the bucket to the directory, then rerun
-    #     # this will skip what's already there
-    #     chk = os.path.join(ndvi_dst, '{}'.format(mask))
-    #
-    #     # write the directory if it's not already there
-    #     if not os.path.exists(chk):
-    #         os.makedirs(chk, exist_ok=True)
-    #
-    #     clustered_sample_ndvi_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
-    #                                  feature_id=FEATURE_ID, drops=list(gdf.columns))
+    etf_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'etf')
+
+    # Here, we run the clustered_field_etf function on the uploaded asset.
+
+    # every sample is divided into a 'purely' irrigated section (i.e., 'irr') and an unirrigated one (i.e., 'inv_irr')
+    # this allows us to build a model for irrigated areas that aren't contaminated by unirrigated areas.
+    # for this tutorial, we're going to use both
+
+    # ETF and NDVI are all also daily? So they should have the same coordinates as the stuff in step 3.
+    # These are capture dates, not daily data. They are not a full time series yet. Yeah, let's continue w/ step 4...
+
+    for mask in ['inv_irr', 'irr']:
+
+        # the 'check_dir' will check the planned directory for the existence of the data
+        # if a run fails for some reason, move what is complete from the bucket to the directory, then rerun
+        # this will skip what's already there
+        chk = os.path.join(etf_dst, '{}'.format(mask))
+
+        # write the directory if it's not already there
+        if not os.path.exists(chk):
+            os.makedirs(chk, exist_ok=True)
+
+        # This has a few extra columns that might need to be dropped, but we'll see!
+        clustered_sample_etf_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
+                                    feature_id=FEATURE_ID, drops=list(gdf.columns))
+
+    ndvi_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'ndvi')
+
+    # Just like before, but with 'ndvi' instead of 'etf':
+    for mask in ['inv_irr', 'irr']:
+
+        # the 'check_dir' will check the planned directory for the existence of the data
+        # if a run fails for some reason, move what is complete from the bucket to the directory, then rerun
+        # this will skip what's already there
+        chk = os.path.join(ndvi_dst, '{}'.format(mask))
+
+        # write the directory if it's not already there
+        if not os.path.exists(chk):
+            os.makedirs(chk, exist_ok=True)
+
+        clustered_sample_ndvi_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
+                                     feature_id=FEATURE_ID, drops=list(gdf.columns))
 
     # # -------------------------------------------------
-    # # Contents of step 2b
-
-    # I've moved the snodas stuff to step 3.
-
-    # let's send all the data we get to our tutorial directories
-    snow_dst = os.path.join(root, 'examples', 'uy10', 'data', 'snodas', 'extracts')
-    if not os.path.isdir(snow_dst):
-        os.makedirs(snow_dst, exist_ok=True)
-
-    start_time = time.time()
-
-    # 7.5 minutes for SWE and soils (i think the soils are really fast)
-
-    # # Old SNODAS stuff
-    # # Here, we run the sample_snodas_swe function on the uploaded asset.
-    # # Note we use 'check_dir' to check if it's already written to the directory,
-    # # and 'overwrite=False' so we don't write it again if it is.
-    # sample_snodas_swe_direct(fields, snow_dst, debug=False, overwrite=False, feature_id=FEATURE_ID)
-    #
-    # snow_out = os.path.join(root, 'examples/uy10/data/snodas/snodas.json')
-    # create_timeseries_json(snow_dst, snow_out, feature_id=FEATURE_ID)
-
-    # Both irr and ssurgo go to "dst"
-    dst = os.path.join(root, 'examples', 'uy10', 'data', 'properties')
-    # description = 'tutorial_irr'
-    get_irrigation_direct(fields, dst, debug=False, selector=FEATURE_ID)
-    # description = 'tutorial_ssurgo'
-    get_ssurgo_direct(fields, dst, debug=False, selector=FEATURE_ID)
-
-    print("{:.0f} seconds".format(time.time() - start_time))
+    # # Contents of step 2b moved to step 3.
 
 
 # # Step 3
@@ -222,7 +193,8 @@ def elevation_from_coordinate(lat, lon):
 
 
 def step_3():
-    """ Contents of step 3 - gridmet and NLDAS (and SNODAS!) met data to NetCDF. """
+    """ Contents of step 3 - gridmet and NLDAS (and step 2b!) data to NetCDF. """
+    print("Begin step 3 processing:")
     all_start = time.time()
 
     gmet_list = []  # empty list for storing gridmet data for each variable.
@@ -273,7 +245,7 @@ def step_3():
     # print()
     # print(list(ds.keys()))
     # print()
-    print("Gridmet: {:.2f} seconds".format(time.time() - start_time))
+    print("1/6 Gridmet: {:.2f} seconds".format(time.time() - start_time))
 
     # print(ds)
 
@@ -322,7 +294,7 @@ def step_3():
     # print(ds)
     # print(ds['time'].values)
     # print()
-    print("ET corrections: {:.2f} seconds".format(time.time() - start_time))
+    print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))
     # print()
     # print(ds)
 
@@ -332,8 +304,11 @@ def step_3():
     # shifting NLDAS to UTC-6 is the most straightforward alignment
     s = pd.to_datetime(start) - timedelta(days=1)
     e = pd.to_datetime(end) + timedelta(days=2)
+    temp = centroids.index
     centroids.index = np.arange(10)  # It failed earlier because it had a non-zero-starting index.
     nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='grib')  # pd df, 11s
+    centroids.index = temp  # Revert back to FID so it doesn't screw anything up later.
+    # I don't know how to check that this preserves order...
     # print(nldas)
     hr_cols = ['prcp_hr_{}'.format(str(i).rjust(2, '0')) for i in range(0, 24)]
 
@@ -367,7 +342,7 @@ def step_3():
     nldas = nldas.assign_coords({'time': ds['time'], 'FID': ds['FID']})
 
     # print()
-    print("nldas: {:.2f} seconds".format(time.time() - start_time))
+    print("3/6 nldas: {:.2f} seconds".format(time.time() - start_time))
 
     ds = ds.merge(nldas)
     # print()
@@ -375,11 +350,6 @@ def step_3():
 
     # SNODAS!
     start_time = time.time()
-    # Open snow dataset
-    # why are there 20 fids?
-    # 6.45 seconds without dropping variables. Can I drop variables first?
-    # 0.9 seconds after dropping variables.
-    # 0.91 seconds to only do band1.
     snow_yrs = []
     for y in range(2005, 2024):
         snow_yr = xarray.open_dataset("F:/snodas/netcdf2/{}WGS84MT.nc".format(y))
@@ -396,9 +366,23 @@ def step_3():
     # print()
     # print(snow)
     # print()
-    print("snodas: {:.2f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
+    print("4/6 snodas: {:.2f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
 
     ds = ds.merge(snow)  # What about the Sept-May thing?
+    # print()
+    # print(ds)
+
+    # Soil and irrigation properties
+    start_time = time.time()
+    fields = 'projects/ee-hehaugen/assets/mt_sid_uy10'
+    irr = get_irrigation_direct_nc(fields, debug=False, selector=FEATURE_ID)
+    ssurgo = get_ssurgo_direct_nc(fields, debug=False, selector=FEATURE_ID)
+    props = irr.merge(ssurgo)
+    # print(props)
+
+    print("5/6 soil and irrigation properties: {:.2f} seconds".format(time.time() - start_time))  # 1-ish seconds
+
+    ds = ds.merge(props)
     print()
     print(ds)
 
@@ -406,7 +390,7 @@ def step_3():
     start_time = time.time()
     ds.to_netcdf("C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc")
     print()
-    print("Saving netcdf: {:.2f} seconds".format(time.time() - start_time))
+    print("6/6 Saving netcdf: {:.2f} seconds".format(time.time() - start_time))
 
     print("Total Step 3 processing time: {:.2f} seconds".format(time.time() - all_start))
     # 3 minutes. Where can I save time? Make saving faster, that's the slowest bit.
