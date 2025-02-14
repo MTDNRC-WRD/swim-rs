@@ -12,13 +12,9 @@ import matplotlib.pyplot as plt
 # 2a
 import sys
 import ee
-from data_extraction.ee.etf_export import clustered_sample_etf_direct
-from data_extraction.ee.ndvi_export import clustered_sample_ndvi_direct
+from data_extraction.ee.etf_export import clustered_sample_etf_direct_1
+from data_extraction.ee.ndvi_export import clustered_sample_ndvi_direct_1
 from data_extraction.ee.ee_utils import is_authorized
-# 2b
-# from data_extraction.ee.snodas_export import sample_snodas_swe_direct
-# from data_extraction.snodas.snodas import create_timeseries_json
-from data_extraction.ee.ee_props import get_irrigation_direct_nc, get_ssurgo_direct_nc
 
 # Step 3 imports
 import xarray
@@ -30,11 +26,12 @@ import pynldas2 as nld
 import numpy as np
 from data_extraction.gridmet.gridmet import air_pressure, actual_vapor_pressure
 from chmdata.thredds import GridMet, BBox
+# 2b
+from data_extraction.ee.ee_props import get_irrigation_direct_nc, get_ssurgo_direct_nc
 
 # Step 4 imports
-# 4a
-from prep.field_properties import write_field_properties_nc
-# from prep.field_timeseries import join_daily_timeseries
+# 4.2
+from prep.landsat_sensing import clustered_landsat_time_series_nc, detect_cuttings_nc
 
 
 def step_1():
@@ -81,68 +78,12 @@ def step_1():
 # TODO: remove hard-coded collections and use variables defined here
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 ETF = 'projects/usgs-gee-nhm-ssebop/assets/ssebop/landsat/c02'
-SWE = 'projects/earthengine-legacy/assets/projects/climate-engine/snodas/daily'
+# SWE = 'projects/earthengine-legacy/assets/projects/climate-engine/snodas/daily'
 # We must specify which column in the shapefile represents the field's unique ID, in this case it is 'FID'
 FEATURE_ID = 'FID'
 
-
-def step_2():
-    # # -------------------------------------------------
-    # # Contents of step 2a
-    # Oh, this involves redoing the functions... Step 3 was a good place to start...
-    # Would Step 4 be a better place to go next? - No, it depends on these things.
-
-    # Upload shapefile to GEE on your own
-    # Can I change to using bounds, and then use xvec to get the polygon-specific stuff? - yeah, I think so.
-
-    fields = 'projects/ee-hehaugen/assets/mt_sid_uy10'
-
-    etf_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'etf')
-
-    # Here, we run the clustered_field_etf function on the uploaded asset.
-
-    # every sample is divided into a 'purely' irrigated section (i.e., 'irr') and an unirrigated one (i.e., 'inv_irr')
-    # this allows us to build a model for irrigated areas that aren't contaminated by unirrigated areas.
-    # for this tutorial, we're going to use both
-
-    # ETF and NDVI are all also daily? So they should have the same coordinates as the stuff in step 3.
-    # These are capture dates, not daily data. They are not a full time series yet. Yeah, let's continue w/ step 4...
-
-    for mask in ['inv_irr', 'irr']:
-
-        # the 'check_dir' will check the planned directory for the existence of the data
-        # if a run fails for some reason, move what is complete from the bucket to the directory, then rerun
-        # this will skip what's already there
-        chk = os.path.join(etf_dst, '{}'.format(mask))
-
-        # write the directory if it's not already there
-        if not os.path.exists(chk):
-            os.makedirs(chk, exist_ok=True)
-
-        # This has a few extra columns that might need to be dropped, but we'll see!
-        clustered_sample_etf_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
-                                    feature_id=FEATURE_ID, drops=list(gdf.columns))
-
-    ndvi_dst = os.path.join(root, 'examples', 'uy10', 'data', 'landsat', 'extracts', 'ndvi')
-
-    # Just like before, but with 'ndvi' instead of 'etf':
-    for mask in ['inv_irr', 'irr']:
-
-        # the 'check_dir' will check the planned directory for the existence of the data
-        # if a run fails for some reason, move what is complete from the bucket to the directory, then rerun
-        # this will skip what's already there
-        chk = os.path.join(ndvi_dst, '{}'.format(mask))
-
-        # write the directory if it's not already there
-        if not os.path.exists(chk):
-            os.makedirs(chk, exist_ok=True)
-
-        clustered_sample_ndvi_direct(fields, chk, debug=False, mask_type=mask, start_yr=2004, end_yr=2023,
-                                     feature_id=FEATURE_ID, drops=list(gdf.columns))
-
-    # # -------------------------------------------------
-    # # Contents of step 2b moved to step 3.
-
+# Step 2a is taken care of in step 4
+# Step 2b is taken care of in step 3
 
 # # Step 3
 CLIMATE_COLS = {
@@ -199,14 +140,6 @@ def step_3():
 
     gmet_list = []  # empty list for storing gridmet data for each variable.
 
-    # Convert to correct coordinate system. Need bounds and field centroids.
-    gdf_4326 = gdf.to_crs("EPSG:4326")
-    bnds = gdf_4326.total_bounds
-    # print(bnds)
-
-    gdf['centroids'] = gdf.geometry.centroid
-    centroids = gdf['centroids'].to_crs('EPSG:4326')  # Likes this. Same result as above...
-
     start = '1987-01-01'
     end = '2023-12-31'
 
@@ -220,6 +153,8 @@ def step_3():
         gmet_input = gmet[list(gmet.data_vars)[0]]  # indexes xarray.Dataset for the data variable
         gmet_list.append(gmet_input)
     ds = xarray.merge(gmet_list)
+    # rename time coordinate?
+    ds = ds.rename({'time': 'date'})
 
     # ds = ds.xvec.zonal_stats(geometry=gdf_4326.geometry, x_coords="lon", y_coords="lat",
     #                          stats="mean(coverage_weight=none)", method="exactextract")  # Slowwww... >30 mins.
@@ -232,7 +167,7 @@ def step_3():
     ds['elevation'] = xarray.Variable('FID', elevs, {'units': 'm'})
     p_air = air_pressure(ds['elevation'])
     ea_kpa = actual_vapor_pressure(ds['daily_mean_specific_humidity'], p_air)
-    ds['ea_kpa'] = xarray.Variable(['time', 'FID'], ea_kpa.copy(),
+    ds['ea_kpa'] = xarray.Variable(['date', 'FID'], ea_kpa.copy(),
                                    {'units': 'kPa', 'description': 'Actual vapor pressure'})  # This takes a bit.
     # Adjusting temperature data
     for i in ['daily_maximum_temperature', 'daily_minimum_temperature']:
@@ -253,8 +188,6 @@ def step_3():
     # correction rasters are in EPSG:5071, so use original gdf to match.
     start_time = time.time()
     gridmet_ras = 'F:/openet_pilot/gridmet/correction_surfaces_aea'
-
-    # So slow! But I think it does work.
     for long_var in ['daily_mean_reference_evapotranspiration_alfalfa',
                      'daily_mean_reference_evapotranspiration_grass']:
         if long_var == 'daily_mean_reference_evapotranspiration_alfalfa':
@@ -287,12 +220,11 @@ def step_3():
         # print(temp_attr)
         # It might not like this...
         # Do I need additional attributes?
-        ds[corr] = xarray.Variable(['time', 'FID'], df[corr].to_xarray(), {'units': 'mm'})
-
+        ds[corr] = xarray.Variable(['date', 'FID'], df[corr].to_xarray(), {'units': 'mm'})
     # df = df[out_cols]  # Do I need to reduce the columns present in the final dataset?
 
     # print(ds)
-    # print(ds['time'].values)
+    # print(ds['date'].values)
     # print()
     print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))
     # print()
@@ -309,20 +241,20 @@ def step_3():
     nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='grib')  # pd df, 11s
     centroids.index = temp  # Revert back to FID so it doesn't screw anything up later.
     # I don't know how to check that this preserves order...
-    # print(nldas)
+    nldas.index = nldas.index.rename('date')
     hr_cols = ['prcp_hr_{}'.format(str(i).rjust(2, '0')) for i in range(0, 24)]
 
     central = pytz.timezone('US/Central')
     nldas = nldas.tz_convert(central)
     hourly_ppt = nldas.pivot_table(columns=nldas.index.hour, index=nldas.index.date)  # works!
-    hourly_ppt = hourly_ppt.loc[ds['time'].values]  # got rid of like 3 rows.
+    hourly_ppt = hourly_ppt.loc[ds['date'].values]  # got rid of like 3 rows.
 
     # rename columns
     hourly_ppt = hourly_ppt.droplevel(level='variable', axis=1)
-    hourly_ppt = hourly_ppt.rename(columns=dict(zip(range(24), hr_cols)), level='time')
+    hourly_ppt = hourly_ppt.rename(columns=dict(zip(range(24), hr_cols)), level='date')
     # hourly_ppt.columns = hourly_ppt.columns.set_names('variable', level=1)  # I think this also works?
     hourly_ppt.columns = hourly_ppt.columns.set_names(['FID', 'variable'])
-    hourly_ppt.index = hourly_ppt.index.rename('time')
+    hourly_ppt.index = hourly_ppt.index.rename('date')
 
     # print()
     # print(hourly_ppt)
@@ -339,16 +271,16 @@ def step_3():
     hourly_ppt = hourly_ppt.stack(level=0)  # moves multiindex column level to the index.
     nldas = hourly_ppt.to_xarray()
     # Make coords match the gridmet data
-    nldas = nldas.assign_coords({'time': ds['time'], 'FID': ds['FID']})
+    nldas = nldas.assign_coords({'date': ds['date'], 'FID': ds['FID']})
 
     # print()
     print("3/6 nldas: {:.2f} seconds".format(time.time() - start_time))
 
     ds = ds.merge(nldas)
-    # print()
-    # print(ds)
+    print()
+    print(ds)
 
-    # SNODAS!
+    # SNODAS
     start_time = time.time()
     snow_yrs = []
     for y in range(2005, 2024):
@@ -356,19 +288,21 @@ def step_3():
         # Extract field locations
         snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
         snow_yr = snow_yr.drop_vars(['crs', 'Band2', 'Band3', 'Band4', 'Band5', 'Band6', 'Band7', 'Band8'])
+        snow_yr = snow_yr.rename({'time': 'date'})
         snow_yrs.append(snow_yr)
-    snow = xarray.concat(snow_yrs, "time")
+    snow = xarray.concat(snow_yrs, "date")
     snow = snow.rename({'Band1': 'swe_m'})
     # Mess with file so it can be saved as a netcdf.
     snow = snow.swap_dims({"geometry": "FID"})
     snow = snow.reset_coords("geometry", drop=True)  # Get rid of geometry index
 
-    # print()
-    # print(snow)
+    print()
+    print(snow)
     # print()
     print("4/6 snodas: {:.2f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
 
     ds = ds.merge(snow)  # What about the Sept-May thing?
+    # ValueError: cannot reindex or align along dimension 'date' because of conflicting dimension sizes: {13514, 19} (note: an index is found along that dimension with size=13514)
     # print()
     # print(ds)
 
@@ -378,7 +312,7 @@ def step_3():
     irr = get_irrigation_direct_nc(fields, debug=False, selector=FEATURE_ID)
     ssurgo = get_ssurgo_direct_nc(fields, debug=False, selector=FEATURE_ID)
     props = irr.merge(ssurgo)
-    # print(props)
+    print(props)
 
     print("5/6 soil and irrigation properties: {:.2f} seconds".format(time.time() - start_time))  # 1-ish seconds
 
@@ -398,26 +332,89 @@ def step_3():
 
 def step_4():
     """ """
-    # input properties files
-    irr = os.path.join(root, 'examples', 'uy10', 'data', 'properties', 'irr.csv')
-    ssurgo = os.path.join(root, 'examples', 'uy10', 'data', 'properties', 'ssurgo.csv')
+    # Step 4.1 is not needed, we've done that with the netcdfs.
 
-    # joined properties file
-    properties_nc = os.path.join(root, 'examples', 'uy10', 'data', 'uy10_properties.nc')
+    # Upload shapefile to GEE on your own
 
-    write_field_properties_nc(shp=shapefile_path, irr=irr, ssurgo=ssurgo, nc=properties_nc, index_col='FID',
-                              shp_add=None, targets=None)
+    # Can I change to using bounds, and then use xvec to get the polygon-specific stuff?
+    # That might work, but I was not able to get it going right now. Future problem there.
+    # Potential problem: might be slower for larger areas with low field density?
+
+    fields = 'projects/ee-hehaugen/assets/mt_sid_uy10'
+
+    tutorial_dir = os.path.join(root, 'examples', 'uy10')
+    landsat = os.path.join(tutorial_dir, 'data', 'landsat')
+
+    remote_sensing_file = os.path.join(landsat, 'remote_sensing.nc')
+
+    types_ = ['inv_irr', 'irr']
+    sensing_params = ['ndvi', 'etf']
+    strt_yr, end_yr = 2004, 2023
+
+    ndvi_irr = None
+
+    # every sample is divided into a 'purely' irrigated section (i.e., 'irr') and an unirrigated one (i.e., 'inv_irr')
+    # this allows us to build a model for irrigated areas that aren't contaminated by unirrigated areas.
+
+    if os.path.exists(remote_sensing_file):
+        print('{} exists, skipping'.format(remote_sensing_file))
+    else:
+        rs_xrs = []
+        start = time.time()
+        for mask_type in types_:
+            for sensing_param in sensing_params:
+                # This bit is slow.
+                if sensing_param == 'etf':
+                    imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=strt_yr,
+                                                         end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                elif sensing_param == 'ndvi':
+                    imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=strt_yr,
+                                                          end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                else:
+                    imgs = None
+                # print()
+                # print(result1)
+
+                # This bit is fast.
+                ts, count = clustered_landsat_time_series_nc(imgs, start_yr=strt_yr, end_yr=end_yr,
+                                                             feature_id=FEATURE_ID,
+                                                             var_name='{}_{}'.format(sensing_param, mask_type))
+                # print()
+                # print(ts)
+                # print(count)
+                rs_xrs.append(ts)
+                rs_xrs.append(count)  # What does count end up being used for?
+                if mask_type == 'irr' and sensing_param == 'ndvi':
+                    ndvi_irr = ts
+
+        print("EE etf and ndvi exports: {:.2f} seconds".format(time.time() - start))  # 70 seconds for 3 years.
+
+        # Finally, we use both the irrigation and NDVI data to run an analysis to infer
+        # simple agricultural information and get an estimate of the potential irrigation dates.
+        irr = "C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc"  # from step 3
+        # cuttings_nc = os.path.join(landsat, 'uy10_cuttings.nc')
+        irr_days = detect_cuttings_nc(ndvi_irr, irr, irr_threshold=0.1)
+        rs_xrs.append(irr_days)
+
+        # Next, join the daily remote sensing data to a single file.
+        # This will be a single, large file to hold all the NDVI and ETf data.
+        start = time.time()
+        rs = xarray.merge(rs_xrs)
+        print()
+        print(rs)
+        rs.to_netcdf(remote_sensing_file)
+        print("Saving EE exports: {:.2f}".format(time.time() - start))
 
 
 if __name__ == '__main__':
     # # Step 1, required for other steps
-    # Load the shapefile
-    print(os.getcwd())
-    print()
+    # # Load the shapefile
+    # print(os.getcwd())
+    # print()
 
     home = os.path.expanduser('~')
     root = os.path.join(home, 'PycharmProjects', 'swim-rs1')
-    print(root)
+    # print(root)
 
     shapefile_path = os.path.join(root, 'examples', 'uy10', 'data', 'gis', 'mt_sid_uy10.shp')
     gdf = gpd.read_file(shapefile_path)
@@ -426,19 +423,31 @@ if __name__ == '__main__':
 
     # step_1()
 
+    # Need bounds for new step 2, also used in Step 3.
+    # Convert to correct coordinate system. Need bounds and field centroids.
+    gdf_4326 = gdf.to_crs("EPSG:4326")
+    bnds = gdf_4326.total_bounds
+    # print(bnds)
+    gdf['centroids'] = gdf.geometry.centroid
+    centroids = gdf['centroids'].to_crs('EPSG:4326')  # Likes this. Same result as above...
+
     # # Step 2, required for other steps
     sys.path.append(root)
     sys.path.insert(0, os.path.abspath('../..'))
     sys.setrecursionlimit(5000)
 
+    print()
     if not is_authorized():
         ee.Authenticate()
     ee.Initialize()
 
-    # step_2()
+    # step_3()
 
-    step_3()
+    # # load netcdf to check that it does work!
+    # file = "C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc"
+    # step3 = xarray.open_dataset(file)
+    # print(step3)
 
-    # step_4()
+    step_4()
 
 # ========================= EOF ====================================================================

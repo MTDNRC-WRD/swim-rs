@@ -213,7 +213,8 @@ def get_ssurgo_direct_nc(fields, debug=False, selector='FID'):
     })
 
     means_df.index = means_df['FID']
-    means_df = means_df[['awc', 'ksat', 'clay', 'sand']]  # drop extra columns
+    means_df['area_sq_m'] = means_df['acres'] * 4046.86  # save area
+    means_df = means_df[['awc', 'ksat', 'clay', 'sand', 'area_sq_m']]  # drop extra columns.
     means_xr = means_df.to_xarray()
 
     return means_xr

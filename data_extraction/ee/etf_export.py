@@ -2,7 +2,10 @@ import os
 import sys
 
 import ee
+import pandas as pd
+from datetime import datetime as dt
 import geopandas as gpd
+import xarray
 
 from data_extraction.ee.ee_utils import is_authorized
 
@@ -332,9 +335,9 @@ def clustered_sample_etf_direct(feature_coll, dest_dir, debug=False, mask_type='
         data_df.to_csv(f)
 
 
-def clustered_sample_etf_direct_nc(feature_coll, dest_dir, debug=False, mask_type='irr',
-                                   start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
-    """ Process GEE SEEBOP etf data and ... do something with netcdfs?
+def clustered_sample_etf_direct_1(feature_coll, debug=False, mask_type='irr',
+                                  start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
+    """ Process GEE SEEBOP etf data and return as pd df.
 
     Combined behavior of clustered_sample_etf and list_and_copy_gcs_bucket"""
     feature_coll = ee.FeatureCollection(feature_coll)
@@ -345,6 +348,8 @@ def clustered_sample_etf_direct_nc(feature_coll, dest_dir, debug=False, mask_typ
     remap = coll.map(lambda img: img.lt(1))
     irr_min_yr_mask = remap.sum().gte(5)
 
+    dfs = []
+
     for year in range(start_yr, end_yr + 1):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
@@ -353,11 +358,11 @@ def clustered_sample_etf_direct_nc(feature_coll, dest_dir, debug=False, mask_typ
 
         desc = 'etf_{}_{}'.format(mask_type, year)
 
-        # Check that file has not already been created.
-        f = os.path.join(dest_dir, '{}.csv'.format(desc))
-        if os.path.exists(f):
-            print(desc, 'exists, skipping')
-            continue
+        # # Check that file has not already been created.
+        # f = os.path.join(dest_dir, '{}.csv'.format(desc))
+        # if os.path.exists(f):
+        #     print(desc, 'exists, skipping')
+        #     continue
 
         coll = ee.ImageCollection(ETF).filterDate('{}-01-01'.format(year), '{}-12-31'.format(year))
         coll = coll.filterBounds(feature_coll)
@@ -415,7 +420,229 @@ def clustered_sample_etf_direct_nc(feature_coll, dest_dir, debug=False, mask_typ
             drops.append('geo')
             data_df.drop(columns=drops, inplace=True, errors='ignore')
         # print(data_df.head())
-        data_df.to_csv(f)
+        # data_df.to_csv(f)
+        dfs.append(data_df)
+    all_yrs = pd.concat(dfs, axis=1)
+    return all_yrs
+
+
+def clustered_sample_etf_direct_nc(feature_coll, debug=False, mask_type='irr',
+                                   start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
+    """ Process GEE SEEBOP etf data and ... do something with netcdfs?
+
+    Combined behavior of clustered_sample_etf and list_and_copy_gcs_bucket"""
+    feature_coll = ee.FeatureCollection(feature_coll)
+
+    s, e = '1987-01-01', '2021-12-31'
+    irr_coll = ee.ImageCollection(IRR)
+    coll = irr_coll.filterDate(s, e).select('classification')
+    remap = coll.map(lambda img: img.lt(1))
+    irr_min_yr_mask = remap.sum().gte(5)
+
+    dfs = []
+
+    for year in range(start_yr, end_yr + 1):
+
+        irr = irr_coll.filterDate('{}-01-01'.format(year),
+                                  '{}-12-31'.format(year)).select('classification').mosaic()
+        irr_mask = irr_min_yr_mask.updateMask(irr.lt(1))
+
+        desc = 'etf_{}_{}'.format(mask_type, year)
+
+        # # Check that file has not already been created.
+        # f = os.path.join(dest_dir, '{}.csv'.format(desc))
+        # if os.path.exists(f):
+        #     print(desc, 'exists, skipping')
+        #     continue
+
+        coll = ee.ImageCollection(ETF).filterDate('{}-01-01'.format(year), '{}-12-31'.format(year))
+        coll = coll.filterBounds(feature_coll)
+        scenes = coll.aggregate_histogram('system:index').getInfo()
+
+        first, bands = True, None
+        selectors = [feature_id]
+
+        for img_id in scenes:
+
+            # if img_id != 'lt05_036029_20000623':
+            #     continue
+
+            splt = img_id.split('_')
+            _name = '_'.join(splt[-3:])
+
+            selectors.append(_name)
+
+            full_path = '{}/{}'.format(ETF, img_id)
+            etf_img = ee.Image(full_path).rename(_name)  # fixed slash
+            etf_img = etf_img.divide(10000)
+
+            if mask_type == 'no_mask':
+                etf_img = etf_img.clip(feature_coll.geometry())
+            elif mask_type == 'irr':
+                etf_img = etf_img.clip(feature_coll.geometry()).mask(irr_mask)
+            elif mask_type == 'inv_irr':
+                etf_img = etf_img.clip(feature_coll.geometry()).mask(irr.gt(0))
+
+            if first:
+                bands = etf_img
+                first = False
+            else:
+                bands = bands.addBands([etf_img])
+
+            if debug:
+                point = ee.Geometry.Point([-107.188225, 44.9011])
+                data = etf_img.sample(point, 30).getInfo()
+                print(data['features'])
+
+        # TODO extract pixel count to filter data
+        data = bands.reduceRegions(collection=feature_coll,
+                                   reducer=ee.Reducer.mean(),
+                                   scale=30)
+
+        data_df = ee.data.computeFeatures({
+            'expression': data,
+            'fileFormat': 'PANDAS_DATAFRAME'
+        })
+
+        print(desc)
+
+        data_df = data_df.melt(
+            id_vars=["FID"],
+            value_vars=scenes,
+            var_name="image",
+            value_name="etf_{}".format(mask_type),
+        )
+
+        # remove 'irr_' from beginning of band names.
+        data_df['date'] = [dt.strptime(i[-8:], '%Y%m%d') for i in data_df['image']]
+        data_df['image'] = [i[:-9] for i in data_df['image']]
+
+        # Create multiindex for xarray formatting
+        mi = pd.MultiIndex.from_frame(data_df[['FID', 'date', 'image']])  # Do I want this much in indices?
+        print("{:.0f} duplicated out of {:.0f}. ({:.2f}%)".format(mi.duplicated().sum(), len(mi),
+                                                                  100*(mi.duplicated().sum()/len(mi))))
+        print(data_df['image'].unique())
+        data_df.index = mi
+        data_df = data_df.drop(columns=['FID', 'date', 'image'])
+        data_df = data_df.sort_index()
+
+        print()
+        print(data_df)
+
+        # print(data_df.head())
+        # data_df.to_csv(f)
+        data_df = data_df.to_xarray()
+        dfs.append(data_df)
+        print()
+        print(data_df)
+    dfs = xarray.merge(dfs)
+    return dfs
+
+
+def clustered_sample_etf_direct_nc1(bounds, dest_dir, debug=False, mask_type='irr',
+                                    start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
+    """ Process GEE SEEBOP etf data and ... do something with netcdfs?
+    This is an experiment looking at the efficiency of dowloading a region's worth of data and then using xvec
+    later to do the zonal statistics. Not working at the moment, returns single values, all zeros, always.
+
+    Combined behavior of clustered_sample_etf and list_and_copy_gcs_bucket
+    bounds: the length-4 list of boundaries of the field area in EPSG:4326 decimal degrees.
+    """
+    # feature_coll = ee.FeatureCollection(feature_coll)
+    # [110.0, 0.0, 113.0, 0.0, 110.0, 3.0]
+    # print(bounds)
+    # print([bounds[0], bounds[1], bounds[0], bounds[3], bounds[2], bounds[3], bounds[2], bounds[1]])
+    bounds = ee.Geometry.Polygon([bounds[0], bounds[1], bounds[0], bounds[3],
+                                  bounds[2], bounds[3], bounds[2], bounds[1]])
+
+    s, e = '1987-01-01', '2021-12-31'
+    irr_coll = ee.ImageCollection(IRR)
+    coll = irr_coll.filterDate(s, e).select('classification')
+    remap = coll.map(lambda img: img.lt(1))
+    irr_min_yr_mask = remap.sum().gte(5)
+
+    dfs = []
+
+    for year in range(start_yr, end_yr + 1):
+
+        irr = irr_coll.filterDate('{}-01-01'.format(year),
+                                  '{}-12-31'.format(year)).select('classification').mosaic()
+        irr_mask = irr_min_yr_mask.updateMask(irr.lt(1))
+
+        desc = 'etf_{}_{}'.format(mask_type, year)
+
+        # # Check that file has not already been created.
+        # f = os.path.join(dest_dir, '{}.nc'.format(desc))
+        # if os.path.exists(f):
+        #     print(desc, 'exists, skipping')
+        #     continue
+
+        coll = ee.ImageCollection(ETF).filterDate('{}-01-01'.format(year), '{}-12-31'.format(year))
+        coll = coll.filterBounds(bounds)
+
+        scenes = coll.aggregate_histogram('system:index').getInfo()
+
+        first, bands = True, None
+        # selectors = [feature_id]
+        selectors = []
+
+        for img_id in scenes:
+
+            # if img_id != 'lt05_036029_20000623':
+            #     continue
+
+            splt = img_id.split('_')
+            _name = '_'.join(splt[-3:])
+
+            selectors.append(_name)
+
+            full_path = '{}/{}'.format(ETF, img_id)  # fixed slash
+            etf_img = ee.Image(full_path).rename(_name)  # is this the right place?
+            etf_img = etf_img.divide(10000)
+
+            # if mask_type == 'no_mask':
+            #     etf_img = etf_img.clip(feature_coll.geometry())
+            # elif mask_type == 'irr':
+            #     etf_img = etf_img.clip(feature_coll.geometry()).mask(irr_mask)
+            # elif mask_type == 'inv_irr':
+            #     etf_img = etf_img.clip(feature_coll.geometry()).mask(irr.gt(0))
+
+            if mask_type == 'irr':
+                etf_img = etf_img.mask(irr_mask).clip(bounds).reproject('EPSG:4326')
+            elif mask_type == 'inv_irr':
+                etf_img = etf_img.mask(irr.gt(0)).clip(bounds).reproject('EPSG:4326')
+
+            if first:
+                bands = etf_img
+                first = False
+            else:
+                bands = bands.addBands([etf_img])
+
+            if debug:
+                point = ee.Geometry.Point([-107.188225, 44.9011])
+                data = etf_img.sample(point, 30).getInfo()
+                print(data['features'])
+
+        # # TODO extract pixel count to filter data
+        # data = bands.reduceRegions(collection=feature_coll,
+        #                            reducer=ee.Reducer.mean(),
+        #                            scale=30)
+
+        data_df = ee.data.computePixels({
+            'expression': bands,
+            'fileFormat': 'NUMPY_NDARRAY'
+        })
+
+        print(desc)
+        # # Drop all columns that are not FID or a landsat image.
+        # data_df.index = data_df[feature_id]
+        # if drops:
+        #     drops.append('geo')
+        #     data_df.drop(columns=drops, inplace=True, errors='ignore')
+        # # print(data_df.head())
+        # data_df.to_xarray()
+        dfs.append(data_df)
+    return dfs
 
 
 if __name__ == '__main__':
