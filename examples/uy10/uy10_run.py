@@ -330,7 +330,7 @@ def step_3():
     # 3 minutes. Where can I save time? Make saving faster, that's the slowest bit.
 
 
-def step_4():
+def step_4(do_inv_irr=True):
     """ """
     # Step 4.1 is not needed, we've done that with the netcdfs.
 
@@ -347,7 +347,10 @@ def step_4():
 
     remote_sensing_file = os.path.join(landsat, 'remote_sensing.nc')
 
-    types_ = ['inv_irr', 'irr']
+    if do_inv_irr:
+        types_ = ['inv_irr', 'irr']
+    else:
+        types_ = ['irr']
     sensing_params = ['ndvi', 'etf']
     strt_yr, end_yr = 2004, 2023
 
@@ -389,12 +392,15 @@ def step_4():
 
         print("EE etf and ndvi exports: {:.2f} seconds".format(time.time() - start))  # 70 seconds for 3 years.
 
-        # Finally, we use both the irrigation and NDVI data to run an analysis to infer
-        # simple agricultural information and get an estimate of the potential irrigation dates.
-        irr = "C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc"  # from step 3
-        # cuttings_nc = os.path.join(landsat, 'uy10_cuttings.nc')
-        irr_days = detect_cuttings_nc(ndvi_irr, irr, irr_threshold=0.1)
-        rs_xrs.append(irr_days)
+        if ndvi_irr:
+            # Finally, we use both the irrigation and NDVI data to run an analysis to infer
+            # simple agricultural information and get an estimate of the potential irrigation dates.
+            irr = "C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc"  # from step 3
+            # cuttings_nc = os.path.join(landsat, 'uy10_cuttings.nc')
+            irr_days = detect_cuttings_nc(ndvi_irr, irr, irr_threshold=0.1)
+            rs_xrs.append(irr_days)
+        else:
+            print("No irrigated ndvi info, skipping detect_cuttings")
 
         # Next, join the daily remote sensing data to a single file.
         # This will be a single, large file to hold all the NDVI and ETf data.
@@ -421,9 +427,9 @@ if __name__ == '__main__':
     # print(gdf)
     gdf.index = gdf['FID']
 
-    # step_1()
+    # step_1()  # Visualizing the study area
 
-    # Need bounds for new step 2, also used in Step 3.
+    # Need bounds for both steps
     # Convert to correct coordinate system. Need bounds and field centroids.
     gdf_4326 = gdf.to_crs("EPSG:4326")
     bnds = gdf_4326.total_bounds
@@ -434,20 +440,55 @@ if __name__ == '__main__':
     # # Step 2, required for other steps
     sys.path.append(root)
     sys.path.insert(0, os.path.abspath('../..'))
-    sys.setrecursionlimit(5000)
+    sys.setrecursionlimit(5000)  # What does this do?
 
     print()
-    if not is_authorized():
-        ee.Authenticate()
-    ee.Initialize()
+    # if not is_authorized():
+    #     ee.Authenticate()
+    # ee.Initialize()
 
-    # step_3()
+    # step_3()  # will always run?
+    # step_4()  # will only run if file isn't detected
 
-    # # load netcdf to check that it does work!
-    # file = "C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc"
-    # step3 = xarray.open_dataset(file)
-    # print(step3)
+    # start = time.time()
+    # step3 = 'C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc'
+    # step3 = xarray.open_dataset(step3)
+    # step4 = 'C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/landsat/remote_sensing.nc'
+    # step4 = xarray.open_dataset(step4)
+    # all_input = xarray.merge([step3, step4])  # causes datetime alignment and introduces nans, making dtype=float.
+    # print()
+    # print(all_input)
+    # all_input.to_netcdf('C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/uy10_input.nc')
+    # print()
+    # print("Merging files: {:.2f}".format(time.time() - start))  # Fast.
 
-    step_4()
+    # ------------------------------------
+    # Now actually run the model. (Step 5)
+    from swim.config import ProjectConfig
+    from swim.input import SamplePlots
+
+    # Our project workspace will replace the "{project_root}" in the paths in the config file,
+    # several directories will be placed there. Let's use the top level directory of this tutorial
+    project_ws = os.path.join(root, 'examples', 'uy10')
+    print(f'Setting project root to {project_ws}')
+
+    config_file = os.path.join(root, 'examples', 'uy10', 'uy10_config.toml')
+    config = ProjectConfig()
+    config.read_config(config_file, project_ws)
+
+    fields = SamplePlots()
+    fields.initialize_plot_data_nc(config)  # loads
+    var = list(fields.input.keys())
+    for i in range(len(var)):
+        print(i, var[i])
+    print(fields.input)
+
+    from model.etd import obs_field_cycle
+
+    # Let's time this run - oh no. It takes 71 seconds to run without the debug, and 73 seconds to run with it!
+    start_time = time.time()
+    fields.output = obs_field_cycle.field_day_loop_nc(config, fields, debug_flag=False)
+    end_time = time.time()
+    print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
 
 # ========================= EOF ====================================================================

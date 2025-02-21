@@ -494,13 +494,23 @@ def clustered_sample_etf_direct_nc(feature_coll, debug=False, mask_type='irr',
                 data = etf_img.sample(point, 30).getInfo()
                 print(data['features'])
 
-        # TODO extract pixel count to filter data
         data = bands.reduceRegions(collection=feature_coll,
                                    reducer=ee.Reducer.mean(),
                                    scale=30)
 
+        # extract pixel count to filter data
+        # We don't actually need that! We get irrigated fraction somewhere else.
+        count = bands.reduceRegions(collection=feature_coll,
+                                    reducer=ee.Reducer.count(),
+                                    scale=30)
+
         data_df = ee.data.computeFeatures({
             'expression': data,
+            'fileFormat': 'PANDAS_DATAFRAME'
+        })
+
+        count_df = ee.data.computeFeatures({
+            'expression': count,
             'fileFormat': 'PANDAS_DATAFRAME'
         })
 
@@ -513,15 +523,25 @@ def clustered_sample_etf_direct_nc(feature_coll, debug=False, mask_type='irr',
             value_name="etf_{}".format(mask_type),
         )
 
+        count_df = count_df.melt(
+            id_vars=["FID"],
+            value_vars=scenes,
+            var_name="image",
+            value_name="etf_{}_ct".format(mask_type),
+        )
+
+        print(data_df)
+        print(count_df)
+
         # remove 'irr_' from beginning of band names.
         data_df['date'] = [dt.strptime(i[-8:], '%Y%m%d') for i in data_df['image']]
         data_df['image'] = [i[:-9] for i in data_df['image']]
 
         # Create multiindex for xarray formatting
         mi = pd.MultiIndex.from_frame(data_df[['FID', 'date', 'image']])  # Do I want this much in indices?
-        print("{:.0f} duplicated out of {:.0f}. ({:.2f}%)".format(mi.duplicated().sum(), len(mi),
-                                                                  100*(mi.duplicated().sum()/len(mi))))
-        print(data_df['image'].unique())
+        # print("{:.0f} duplicated out of {:.0f}. ({:.2f}%)".format(mi.duplicated().sum(), len(mi),
+        #                                                           100*(mi.duplicated().sum()/len(mi))))
+        # print(data_df['image'].unique())
         data_df.index = mi
         data_df = data_df.drop(columns=['FID', 'date', 'image'])
         data_df = data_df.sort_index()
@@ -539,11 +559,12 @@ def clustered_sample_etf_direct_nc(feature_coll, debug=False, mask_type='irr',
     return dfs
 
 
-def clustered_sample_etf_direct_nc1(bounds, dest_dir, debug=False, mask_type='irr',
+def clustered_sample_etf_direct_nc1(bounds, debug=False, mask_type='irr',
                                     start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
     """ Process GEE SEEBOP etf data and ... do something with netcdfs?
     This is an experiment looking at the efficiency of dowloading a region's worth of data and then using xvec
     later to do the zonal statistics. Not working at the moment, returns single values, all zeros, always.
+    This is closer now, but I don't think it is saving any time, and it is much more complicated.
 
     Combined behavior of clustered_sample_etf and list_and_copy_gcs_bucket
     bounds: the length-4 list of boundaries of the field area in EPSG:4326 decimal degrees.
@@ -552,6 +573,10 @@ def clustered_sample_etf_direct_nc1(bounds, dest_dir, debug=False, mask_type='ir
     # [110.0, 0.0, 113.0, 0.0, 110.0, 3.0]
     # print(bounds)
     # print([bounds[0], bounds[1], bounds[0], bounds[3], bounds[2], bounds[3], bounds[2], bounds[1]])
+    # print([[[bounds[0], bounds[1]], [bounds[0], bounds[3]], [bounds[2], bounds[3]],
+    #         [bounds[2], bounds[1]], [bounds[0], bounds[1]]]])
+    # bounds = ee.Geometry.Polygon([[[bounds[0], bounds[1]], [bounds[0], bounds[3]],
+    #                               [bounds[2], bounds[3]], [bounds[2], bounds[1]], [bounds[0], bounds[1]]]])
     bounds = ee.Geometry.Polygon([bounds[0], bounds[1], bounds[0], bounds[3],
                                   bounds[2], bounds[3], bounds[2], bounds[1]])
 
@@ -608,9 +633,9 @@ def clustered_sample_etf_direct_nc1(bounds, dest_dir, debug=False, mask_type='ir
             #     etf_img = etf_img.clip(feature_coll.geometry()).mask(irr.gt(0))
 
             if mask_type == 'irr':
-                etf_img = etf_img.mask(irr_mask).clip(bounds).reproject('EPSG:4326')
+                etf_img = etf_img.mask(irr_mask).reproject(crs='EPSG:4326', scale=30).clip(bounds)
             elif mask_type == 'inv_irr':
-                etf_img = etf_img.mask(irr.gt(0)).clip(bounds).reproject('EPSG:4326')
+                etf_img = etf_img.mask(irr.gt(0)).reproject(crs='EPSG:4326', scale=30).clip(bounds)
 
             if first:
                 bands = etf_img

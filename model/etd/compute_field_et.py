@@ -27,7 +27,7 @@ def compute_field_et(config, et_cell, foo, foo_day, debug_flag=False):
     foo.fc = np.minimum(foo.fc, 0.99)
     if np.any(np.isnan(foo.fc)):
         mask = np.isnan(foo.fc).flatten()
-        nan_ids = np.array(et_cell.input['order'])[mask]
+        nan_ids = np.array(et_cell.input['FID'])[mask]
         for nan_id in nan_ids:
             if not nan_id in foo.isnan:
                 foo.isnan.append(nan_id)

@@ -308,7 +308,9 @@ def clustered_landsat_time_series_nc(image_df, start_yr=2000, end_yr=2024, featu
 
     ct = ct.reindex(dt_index)
     ct = ct.fillna(0)
-    ct = ct.astype(int)  # TODO: Why can't this be bool?
+    # print(ct.max())
+    # ct = ct.astype(int)  # TODO: Why can't this be bool?
+    ct = ct.astype(bool)
 
     adf = df.copy()
     ctdf = ct.copy()

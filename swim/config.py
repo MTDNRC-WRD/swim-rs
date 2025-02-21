@@ -21,6 +21,7 @@ class ProjectConfig:
         self.forecast_parameters = None
         self.forecast = None
         self.data_folder = None
+        self.irr_threshold = None
 
         self.kc_proxy = None
         self.cover_proxy = None
@@ -92,6 +93,8 @@ class ProjectConfig:
         assert self.elev_units == 'm'
 
         self.refet_type = config[crop_et_sec]['refet_type']
+
+        self.irr_threshold = config[crop_et_sec]['irr_threshold']
 
         # et cells properties
         # TODO: get ksat for runoff generation

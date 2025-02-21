@@ -2,6 +2,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import xarray
 
 
 class SamplePlots:
@@ -21,6 +22,27 @@ class SamplePlots:
         f = config.input_data
         with open(f, 'r') as fp:
             self.input = json.load(fp)
+
+    def initialize_plot_data_nc(self, config):
+        f = config.input_data
+        ds = xarray.open_dataset(f)
+
+        # TODO: Add doy variable to input netcdf? for now, I'll add it here
+        doys = [pd.to_datetime(date).dayofyear for date in ds['date'].values]
+        ds['doy'] = xarray.Variable('date', doys, {'long_name': 'integer day of year'})
+
+        # TODO: rename long gridmet variables in netcdf, retain long name in attributes.
+        renaming = {'daily_mean_reference_evapotranspiration_alfalfa': 'etr_mm',
+                    'daily_mean_reference_evapotranspiration_grass': 'eto_mm',
+                    'precipitation_amount': 'prcp_mm',
+                    'daily_mean_shortwave_radiation_at_surface': 'srad_wm2',
+                    'daily_maximum_temperature': 'tmax_c',
+                    'daily_minimum_temperature': 'tmin_c',
+                    'daily_mean_wind_speed': 'u2_ms',
+                    'daily_mean_specific_humidity': 'q'}
+        ds = ds.rename(renaming)
+
+        self.input = ds
 
     def input_to_dataframe(self, feature_id):
 

@@ -250,6 +250,57 @@ class PlotTracker:
             except AttributeError as e:
                 print(p, e)
 
+    def load_soils_nc(self, plots):
+        """Assign characteristics for crop from crop Arrays
+        Parameters
+        ---------
+        plots : dict
+            configuration data from INI file
+
+        et_cell :
+
+        crop :
+
+
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+        Called by crop_cycle.crop_cycle() just before time loop
+
+        """
+
+        self.zr = self.zr_min  # initialize rooting depth at beginning of time
+        self.height = self.height_min
+
+        # Available water in soil
+        # This will be optimized
+        # TODO: get this from props
+        # self.aw = et_cell.props['stn_whc'] / 12 * 1000.  # in/ft to mm/m
+
+        self.aw = plots.input['awc'].values.reshape(1, -1) * 1000.
+
+        self.ksat = plots.input['ksat'].values.reshape(1, -1)
+        # micrometer/sec to mm/day
+        self.ksat = self.ksat * 0.001 * 86400.
+        self.ksat_hourly = np.ones((24, self.ksat.shape[1])) * self.ksat / 24.
+
+        # Estimate readily evaporable water and total evaporable water from WHC
+        # REW is from regression of REW vs. AW from FAO-56 soils table
+        # R.Allen, August 2006, R2=0.92, n = 9
+
+        self.rew = 0.8 + 54.4 * self.aw / 1000  # REW is in mm and AW is in mm/m
+
+        self.tew = -3.7 + 166 * self.aw / 1000  # TEW is in mm and AW is in mm/m
+
+        condition = self.rew > 0.8 * self.tew
+        self.rew = np.where(condition, 0.8 * self.tew, self.rew)  # limit REW based on TEW
+
+        self.daw3 = np.zeros_like(self.aw)
+        self.depl_root = self.aw * self.zr
+
     def load_soils(self, plots):
         """Assign characteristics for crop from crop Arrays
         Parameters
