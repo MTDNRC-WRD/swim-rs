@@ -297,11 +297,19 @@ def clustered_landsat_time_series_nc(image_df, start_yr=2000, end_yr=2024, featu
 
     field[field.values < 0.2] = np.nan
 
+    ct = ~pd.isna(field)
+    # print()
+    # print(ct, ct.sum())
+    # print()
+
     df = field.copy()
     df = df.astype(float).interpolate()
     df = df.reindex(dt_index)
 
-    ct = ~pd.isna(df)
+    # ct = ~pd.isna(df)
+    # print()
+    # print(ct, ct.sum())
+    # print()
 
     df = df.interpolate().bfill()
     df = df.interpolate().ffill()
@@ -309,7 +317,7 @@ def clustered_landsat_time_series_nc(image_df, start_yr=2000, end_yr=2024, featu
     ct = ct.reindex(dt_index)
     ct = ct.fillna(0)
     # print(ct.max())
-    # ct = ct.astype(int)  # TODO: Why can't this be bool?
+    # ct = ct.astype(int)
     ct = ct.astype(bool)
 
     adf = df.copy()
@@ -570,8 +578,8 @@ def detect_cuttings_nc(landsat, irr_csv, irr_threshold=0.1, select=None):
 
     irr_days = irr_days.to_xarray()  # melt index when building df, not at the end?
 
-    print()
-    print(irr_days)
+    # print()
+    # print(irr_days)
 
     return irr_days
 

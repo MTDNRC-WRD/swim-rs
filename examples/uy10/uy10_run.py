@@ -162,15 +162,25 @@ def step_3():
     ds = ds.swap_dims({"geometry": "FID"})
     ds = ds.reset_coords("geometry", drop=True)  # Get rid of geometry index
 
+    renaming = {'daily_mean_reference_evapotranspiration_alfalfa': 'etr_mm',
+                'daily_mean_reference_evapotranspiration_grass': 'eto_mm',
+                'precipitation_amount': 'prcp_mm',
+                'daily_mean_shortwave_radiation_at_surface': 'srad_wm2',
+                'daily_maximum_temperature': 'tmax_c',  # still need conversion, but start w/ eventually correct name.
+                'daily_minimum_temperature': 'tmin_c',  # still need conversion, but start w/ eventually correct name.
+                'daily_mean_wind_speed': 'u2_ms',
+                'daily_mean_specific_humidity': 'q'}
+    ds = ds.rename(renaming)
+
     # Additional variables: elevation (need ee) and vapor pressure
     elevs = [elevation_from_coordinate(lat=point.coords[0][1], lon=point.coords[0][0]) for point in centroids]
     ds['elevation'] = xarray.Variable('FID', elevs, {'units': 'm'})
     p_air = air_pressure(ds['elevation'])
-    ea_kpa = actual_vapor_pressure(ds['daily_mean_specific_humidity'], p_air)
+    ea_kpa = actual_vapor_pressure(ds['q'], p_air)
     ds['ea_kpa'] = xarray.Variable(['date', 'FID'], ea_kpa.copy(),
                                    {'units': 'kPa', 'description': 'Actual vapor pressure'})  # This takes a bit.
-    # Adjusting temperature data
-    for i in ['daily_maximum_temperature', 'daily_minimum_temperature']:
+    # Adjusting temperature data (started in K, turn to deg C)
+    for i in ['tmax_c', 'tmin_c']:
         temp_attr = ds[i].attrs
         temp_attr['units'] = 'C'
         ds[i] = ds[i] - 273.15
@@ -188,13 +198,9 @@ def step_3():
     # correction rasters are in EPSG:5071, so use original gdf to match.
     start_time = time.time()
     gridmet_ras = 'F:/openet_pilot/gridmet/correction_surfaces_aea'
-    for long_var in ['daily_mean_reference_evapotranspiration_alfalfa',
-                     'daily_mean_reference_evapotranspiration_grass']:
-        if long_var == 'daily_mean_reference_evapotranspiration_alfalfa':
-            var = 'etr'
-        else:
-            var = 'eto'
-        rasters = [os.path.join(gridmet_ras, 'gridmet_corrected_{}_{}.tif'.format(var, m)) for m in range(1, 13)]
+    for etvar in ['etr_mm', 'eto_mm']:
+        rasters = [os.path.join(gridmet_ras, 'gridmet_corrected_{}_{}.tif'
+                                .format(etvar[:3], m)) for m in range(1, 13)]
         gridmet_factors = []
         for r in rasters:
             ras = xarray.open_dataset(r, engine='rasterio')
@@ -204,16 +210,16 @@ def step_3():
         gridmet_factors = np.asarray(gridmet_factors)
         # print(np.shape(gridmet_factors))
         # print(gridmet_factors)
-        df = ds[long_var].to_dataframe()
+        df = ds[etvar].to_dataframe()
         # print(df)
-        corr = "{}_corrected".format(var)
+        corr = "{}_corrected".format(etvar)
         num = 0
         for point in df.index.levels[1]:
             # print(point)  # Looks good.
             for month in range(1, 13):
                 corr_factor = gridmet_factors[month-1][num]
                 idx = [i for i in df.index if (i[0].month == month and i[1] == point)]
-                df.loc[idx, corr] = df.loc[idx, long_var] * corr_factor
+                df.loc[idx, corr] = df.loc[idx, etvar] * corr_factor
             num += 1
         # print(df)
         # temp_attr = ds[long_var].attrs
@@ -385,6 +391,13 @@ def step_4(do_inv_irr=True):
                 # print()
                 # print(ts)
                 # print(count)
+
+                # plt.figure()
+                # for i in range(10):
+                #     plt.plot(ts.to_dataarray().values[0, :, i])
+                #     plt.plot(count.to_dataarray().values[0, :, i])
+                # plt.show()
+
                 rs_xrs.append(ts)
                 rs_xrs.append(count)  # What does count end up being used for?
                 if mask_type == 'irr' and sensing_param == 'ndvi':
@@ -446,10 +459,12 @@ if __name__ == '__main__':
     # if not is_authorized():
     #     ee.Authenticate()
     # ee.Initialize()
-
+    #
+    # all_start = time.time()
+    #
     # step_3()  # will always run?
     # step_4()  # will only run if file isn't detected
-
+    #
     # start = time.time()
     # step3 = 'C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/met_timeseries/uy10_step3.nc'
     # step3 = xarray.open_dataset(step3)
@@ -461,6 +476,10 @@ if __name__ == '__main__':
     # all_input.to_netcdf('C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/data/uy10_input.nc')
     # print()
     # print("Merging files: {:.2f}".format(time.time() - start))  # Fast.
+    #
+    # all_end = time.time()
+    # print()
+    # print("Total input netcdf processing time: {:.0f}".format(all_end - all_start))
 
     # ------------------------------------
     # Now actually run the model. (Step 5)
@@ -485,10 +504,27 @@ if __name__ == '__main__':
 
     from model.etd import obs_field_cycle
 
-    # Let's time this run - oh no. It takes 71 seconds to run without the debug, and 73 seconds to run with it!
+    # Let's time this run - slow! :(
     start_time = time.time()
-    fields.output = obs_field_cycle.field_day_loop_nc(config, fields, debug_flag=False)
+    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=True)
     end_time = time.time()
     print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
+
+    # print(fields.output)
+
+    # Save the results for a given field and plot them.
+    field = 354
+    out_df = fields.output[field].copy()
+
+    print()
+    print(out_df.head())
+    print(out_df.columns)
+
+    out_data_loc = os.path.join(root, 'examples', 'uy10', 'combined_output_{}.csv'.format('354'))
+
+    in_df = fields.input_to_dataframe(field)
+    df = pd.concat([out_df, in_df], axis=1, join='inner', ignore_index=False)
+    df.to_csv(out_data_loc)
+    print(df.shape)
 
 # ========================= EOF ====================================================================

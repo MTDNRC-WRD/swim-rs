@@ -25,45 +25,39 @@ class SamplePlots:
 
     def initialize_plot_data_nc(self, config):
         f = config.input_data
-        ds = xarray.open_dataset(f)
-
-        # TODO: Add doy variable to input netcdf? for now, I'll add it here
-        doys = [pd.to_datetime(date).dayofyear for date in ds['date'].values]
-        ds['doy'] = xarray.Variable('date', doys, {'long_name': 'integer day of year'})
-
-        # TODO: rename long gridmet variables in netcdf, retain long name in attributes.
-        renaming = {'daily_mean_reference_evapotranspiration_alfalfa': 'etr_mm',
-                    'daily_mean_reference_evapotranspiration_grass': 'eto_mm',
-                    'precipitation_amount': 'prcp_mm',
-                    'daily_mean_shortwave_radiation_at_surface': 'srad_wm2',
-                    'daily_maximum_temperature': 'tmax_c',
-                    'daily_minimum_temperature': 'tmin_c',
-                    'daily_mean_wind_speed': 'u2_ms',
-                    'daily_mean_specific_humidity': 'q'}
-        ds = ds.rename(renaming)
-
-        self.input = ds
+        self.input = xarray.open_dataset(f)
 
     def input_to_dataframe(self, feature_id):
 
-        idx = self.input['order'].index(feature_id)
+        # select statement?
+        one_field = self.input.sel(FID=feature_id)
+        df_ = one_field.to_dataframe()
+        print(df_)
+        df_.index = df_.index.droplevel(1)
+        df_ = df_.groupby(df_.index).first()  # remove duplicate indices
+        print(df_)
+        print(df_.columns)
+        df_ = df_.drop(columns=['awc', 'ksat', 'clay', 'sand', 'area_sq_m', 'irr_days', 'ea_kpa'])
+        # problem with maintaining the years dimension on variables that are not using it.
 
-        ts = self.input['time_series']
-        dct = {k: [] for k in ts[list(ts.keys())[0]]}
-        dates = []
-
-        for dt in ts:
-            doy_data = ts[dt]
-            dates.append(dt)
-            for k, v in doy_data.items():
-                if k == 'doy':
-                    dct['doy'].append(v)
-                else:
-                    # all other values are lists
-                    dct[k].append(v[idx])
-
-        df_ = pd.DataFrame().from_dict(dct)
-        df_.index = pd.DatetimeIndex(dates)
+        # idx = self.input['order'].index(feature_id)
+        #
+        # ts = self.input['time_series']
+        # dct = {k: [] for k in ts[list(ts.keys())[0]]}
+        # dates = []
+        #
+        # for dt in ts:
+        #     doy_data = ts[dt]
+        #     dates.append(dt)
+        #     for k, v in doy_data.items():
+        #         if k == 'doy':
+        #             dct['doy'].append(v)
+        #         else:
+        #             # all other values are lists
+        #             dct[k].append(v[idx])
+        #
+        # df_ = pd.DataFrame().from_dict(dct)
+        # df_.index = pd.DatetimeIndex(dates)
         return df_
 
 
