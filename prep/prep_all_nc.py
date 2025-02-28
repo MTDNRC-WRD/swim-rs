@@ -15,6 +15,7 @@ from datetime import timedelta
 import pytz
 import pynldas2 as nld
 import numpy as np
+from tqdm import tqdm
 from chmdata.thredds import GridMet, BBox
 
 from data_extraction.ee.etf_export import clustered_sample_etf_direct_1
@@ -151,10 +152,13 @@ def step_3(fields, gm_out, out_file):
 
     start_time = time.time()
 
+    # Can I put gridmet and gridmet corrections together? It might not make sense with the way I'm using the dataframe.
+
     if os.path.exists(gm_out):
-        print('{} exists, skipping'.format(gm_out))
-        # extracting coordinates for corrections below
+        print('1/6 Gridmet: {} exists, skipping'.format(gm_out))
+        # extracting coordinates and data for corrections below
         ds = xarray.open_dataset(gm_out)
+        etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()
         ds_coords = xarray.Coordinates(ds.coords)
     else:
         for p, col in CLIMATE_COLS.items():  # 6s
@@ -202,27 +206,30 @@ def step_3(fields, gm_out, out_file):
         print("1/6 Gridmet: {:.2f} seconds".format(time.time() - start_time))
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    # memory too full to continue after this point, but we need to be able to access info for the corrections...
-    # pull out ET variables from dataset
-    et_df = ds[['etr_mm', 'eto_mm']].to_dataframe()
-    start_time = time.time()
-    ds.to_netcdf(gm_out)  # memory too full to save to netcdf?
-    print("Gridmet saving to nc: {:.2f} seconds".format(time.time() - start_time))
-    # print()
-    # print(ds)
-    ds_coords = xarray.Coordinates(ds.coords)  # save coords for initializing next ds.
-    ds.close()  # release resources - memory above and below read the same. Were resources not released?
+        # memory too full to continue after this point, but we need to be able to access info for the corrections...
+        # pull out ET variables from dataset
+        etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()
+        start_time = time.time()
+        ds.to_netcdf(gm_out, engine="netcdf4")  # memory too full to save to netcdf?
+        print("Gridmet saving to nc: {:.2f} seconds".format(time.time() - start_time))
+        # print()
+        # print(ds)
+        ds_coords = xarray.Coordinates(ds.coords)  # save coords for initializing next ds.
 
     # create new ds with coordinates saved above
-    # gm_ds = xarray.open_dataset(gm_out)  # to access variables
     ds = xarray.Dataset(coords=ds_coords)
     # print(ds)
     # print()
-    # print(et_df)
 
     # # Gridmet ET corrections
     # correction rasters are in EPSG:5071, so use original gdf to match.
     start_time = time.time()
+    # print(etdf)
+    etdf['date'] = [i[0] for i in etdf.index]  # slow at the beginning, but I think it's worth it?
+    etdf['month'] = [i[0].month for i in etdf.index]
+    etdf['FID'] = [i[1] for i in etdf.index]
+    # print("reshuffling dataframe to allow vectorization: {:.2f} seconds".format(time.time() - start_time)) ~1min
+    # print(etdf)
     gridmet_ras = os.path.join(main_dir, 'openet_pilot/gridmet/correction_surfaces_aea')
     for etvar in ['etr_mm', 'eto_mm']:
         rasters = [os.path.join(gridmet_ras, 'gridmet_corrected_{}_{}.tif'
@@ -236,26 +243,26 @@ def step_3(fields, gm_out, out_file):
         gridmet_factors = np.asarray(gridmet_factors)
         # print(np.shape(gridmet_factors))
         # print(gridmet_factors)
-        df = et_df[etvar]
-        # df = gm_ds[etvar].to_dataframe()
+        etdf['factor'] = np.zeros_like(etdf[etvar])  # overwritten for the other variable
         corr = "{}_corrected".format(etvar)
         num = 0
-        for point in df.index.levels[1]:
+        for point in tqdm(etdf.index.levels[1], total=len(etdf.index.levels[1])):
             # print(point)
             for month in range(1, 13):
-                corr_factor = gridmet_factors[month-1][num]
-                idx = [i for i in df.index if (i[0].month == month and i[1] == point)]
-                df.loc[idx] = df.loc[idx] * corr_factor
+                corr_factor = gridmet_factors[month - 1][num]
+                mask = (etdf['month'] == month) & (etdf['FID'] == point)
+                etdf.loc[mask, 'factor'] = corr_factor
             num += 1
+        etdf[corr] = etdf[etvar] * etdf['factor']
         # print(df)
         # Do I need additional attributes?
-        ds[corr] = xarray.Variable(['date', 'FID'], df.to_xarray(), {'units': 'mm'})
+        ds[corr] = xarray.Variable(['date', 'FID'], etdf[corr].to_xarray(), {'units': 'mm'})
 
     # print()
     # print(ds)
     # print(ds['date'].values)
     # print()
-    print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))
+    print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))  # 1 hour in on the corrections.
     print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
     # print()
     # print(ds)

@@ -14,7 +14,7 @@ import pyproj
 import pynldas2 as nld
 from rasterstats import zonal_stats
 
-from data_extraction.gridmet.thredds import GridMet
+from chmdata.thredds import GridMet
 
 CLIMATE_COLS = {
     'etr': {

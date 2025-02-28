@@ -59,18 +59,18 @@ def step_1():
         print(attribute)
     print()
 
-    # Create directories, if they do not already exist
-    data_dir = os.path.join(root, 'examples', 'uy10', 'data')
-    dirs = ['snodas',
-            'properties',
-            'landsat',
-            'bias_correction_tif',
-            'gis',
-            'met_timeseries',
-            'input_timeseries']
-
-    dir_paths = [os.path.join(data_dir, d) for d in dirs]
-    [os.makedirs(d, exist_ok=True) for d in dir_paths]
+    # # Create directories, if they do not already exist
+    # data_dir = os.path.join(root, 'examples', 'uy10', 'data')
+    # dirs = ['snodas',
+    #         'properties',
+    #         'landsat',
+    #         'bias_correction_tif',
+    #         'gis',
+    #         'met_timeseries',
+    #         'input_timeseries']
+    #
+    # dir_paths = [os.path.join(data_dir, d) for d in dirs]
+    # [os.makedirs(d, exist_ok=True) for d in dir_paths]
 
 
 # # Step 2
