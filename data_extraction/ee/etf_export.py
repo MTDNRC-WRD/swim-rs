@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime as dt
 import geopandas as gpd
 import xarray
+from tqdm import tqdm
 
 from data_extraction.ee.ee_utils import is_authorized
 
@@ -349,8 +350,8 @@ def clustered_sample_etf_direct_1(feature_coll, debug=False, mask_type='irr',
     irr_min_yr_mask = remap.sum().gte(5)
 
     dfs = []
-
-    for year in range(start_yr, end_yr + 1):
+    print('etf_{} {}-{}:'.format(mask_type, start_yr, end_yr))
+    for year in tqdm(range(start_yr, end_yr + 1), total=end_yr - start_yr):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
                                   '{}-12-31'.format(year)).select('classification').mosaic()
@@ -413,7 +414,7 @@ def clustered_sample_etf_direct_1(feature_coll, debug=False, mask_type='irr',
             'fileFormat': 'PANDAS_DATAFRAME'
         })
 
-        print(desc)
+        # print(desc)
         # Drop all columns that are not FID or a landsat image.
         data_df.index = data_df[feature_id]
         if drops:

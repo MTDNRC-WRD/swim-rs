@@ -26,6 +26,7 @@ from data_extraction.ee.ee_props import get_irrigation_direct_nc, get_ssurgo_dir
 from prep.landsat_sensing import clustered_landsat_time_series_nc, detect_cuttings_nc
 
 import psutil
+TRACK_MEM = False  # this doesn't seem to be very useful.
 
 
 def get_process_memory():
@@ -133,7 +134,6 @@ def step_3(fields, gm_out, out_file):
     fields: str, location of gee field shapefile asset, form of 'projects/cloud_project/assets/asset_filename'
     out_file:
     """
-    # TODO: create intermediate ncs.
 
     print("Begin step 3 processing:")
 
@@ -151,14 +151,11 @@ def step_3(fields, gm_out, out_file):
     # end = '2018-12-31'
 
     start_time = time.time()
-
-    # Can I put gridmet and gridmet corrections together? It might not make sense with the way I'm using the dataframe.
-
     if os.path.exists(gm_out):
         print('1/6 Gridmet: {} exists, skipping'.format(gm_out))
         # extracting coordinates and data for corrections below
         ds = xarray.open_dataset(gm_out)
-        etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()
+        # etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()
         ds_coords = xarray.Coordinates(ds.coords)
     else:
         for p, col in CLIMATE_COLS.items():  # 6s
@@ -179,8 +176,8 @@ def step_3(fields, gm_out, out_file):
                     'daily_mean_reference_evapotranspiration_grass': 'eto_mm',
                     'precipitation_amount': 'prcp_mm',
                     'daily_mean_shortwave_radiation_at_surface': 'srad_wm2',
-                    'daily_maximum_temperature': 'tmax_c',  # still need conversion, but start w/ eventually correct name.
-                    'daily_minimum_temperature': 'tmin_c',  # still need conversion, but start w/ eventually correct name.
+                    'daily_maximum_temperature': 'tmax_c',  # needs conversion, but start w/ eventually correct name.
+                    'daily_minimum_temperature': 'tmin_c',  # needs conversion, but start w/ eventually correct name.
                     'daily_mean_wind_speed': 'u2_ms',
                     'daily_mean_specific_humidity': 'q'}
         ds = ds.rename(renaming)
@@ -201,71 +198,63 @@ def step_3(fields, gm_out, out_file):
             ds[i].attrs.update(temp_attr)
 
         # print()
-        # print(list(ds.keys()))
-        # print()
         print("1/6 Gridmet: {:.2f} seconds".format(time.time() - start_time))
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-        # memory too full to continue after this point, but we need to be able to access info for the corrections...
         # pull out ET variables from dataset
-        etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()
+        etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()  # this is the right length.
+
+        # # Gridmet ET corrections
+        start_time = time.time()
+        etdf['date'] = [i[0] for i in etdf.index]  # slow at the beginning, but I think it's worth it.
+        etdf['month'] = [i[0].month for i in etdf.index]
+        etdf['FID'] = [i[1] for i in etdf.index]
+        # print(len(etdf))
+        # print("reshuffling dataframe to allow vectorization: {:.2f} seconds".format(time.time() - start_time)) ~1min
+        # print(etdf)
+
+        # correction rasters are in EPSG:5071, so use original gdf to match.
+        gridmet_ras = os.path.join(main_dir, 'openet_pilot/gridmet/correction_surfaces_aea')
+        for etvar in ['etr_mm', 'eto_mm']:
+            rasters = [os.path.join(gridmet_ras, 'gridmet_corrected_{}_{}.tif'
+                                    .format(etvar[:3], m)) for m in range(1, 13)]
+            gridmet_factors = []
+            for r in rasters:
+                ras = xarray.open_dataset(r, engine='rasterio')
+                vals = ras.xvec.extract_points(gdf['centroids'], x_coords="x", y_coords="y",
+                                               index=False)['band_data'].values[0]
+                gridmet_factors.append(vals)
+            gridmet_factors = np.asarray(gridmet_factors)
+            # print(np.shape(gridmet_factors))
+            # print(gridmet_factors)
+            etdf['factor'] = np.zeros_like(etdf[etvar])  # overwritten for the other variable
+            corr = "{}_corrected".format(etvar)
+            num = 0
+            for point in tqdm(etdf.index.levels[1], total=len(etdf.index.levels[1])):
+                # print(point)
+                for month in range(1, 13):
+                    corr_factor = gridmet_factors[month - 1][num]
+                    mask = (etdf['month'] == month) & (etdf['FID'] == point)
+                    etdf.loc[mask, 'factor'] = corr_factor
+                num += 1
+            etdf[corr] = etdf[etvar] * etdf['factor']
+            # print(etdf[corr])
+            # Do I need additional attributes?
+            ds[corr] = xarray.Variable(['date', 'FID'], etdf[corr].to_xarray(), {'units': 'mm'})
+            # ds[corr] = etdf[corr].to_xarray()  # this seems to work just fine...
+
+        print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+
         start_time = time.time()
         ds.to_netcdf(gm_out, engine="netcdf4")  # memory too full to save to netcdf?
         print("Gridmet saving to nc: {:.2f} seconds".format(time.time() - start_time))
-        # print()
-        # print(ds)
         ds_coords = xarray.Coordinates(ds.coords)  # save coords for initializing next ds.
 
     # create new ds with coordinates saved above
     ds = xarray.Dataset(coords=ds_coords)
-    # print(ds)
-    # print()
-
-    # # Gridmet ET corrections
-    # correction rasters are in EPSG:5071, so use original gdf to match.
-    start_time = time.time()
-    # print(etdf)
-    etdf['date'] = [i[0] for i in etdf.index]  # slow at the beginning, but I think it's worth it?
-    etdf['month'] = [i[0].month for i in etdf.index]
-    etdf['FID'] = [i[1] for i in etdf.index]
-    # print("reshuffling dataframe to allow vectorization: {:.2f} seconds".format(time.time() - start_time)) ~1min
-    # print(etdf)
-    gridmet_ras = os.path.join(main_dir, 'openet_pilot/gridmet/correction_surfaces_aea')
-    for etvar in ['etr_mm', 'eto_mm']:
-        rasters = [os.path.join(gridmet_ras, 'gridmet_corrected_{}_{}.tif'
-                                .format(etvar[:3], m)) for m in range(1, 13)]
-        gridmet_factors = []
-        for r in rasters:
-            ras = xarray.open_dataset(r, engine='rasterio')
-            vals = ras.xvec.extract_points(gdf['centroids'], x_coords="x", y_coords="y",
-                                           index=False)['band_data'].values[0]
-            gridmet_factors.append(vals)
-        gridmet_factors = np.asarray(gridmet_factors)
-        # print(np.shape(gridmet_factors))
-        # print(gridmet_factors)
-        etdf['factor'] = np.zeros_like(etdf[etvar])  # overwritten for the other variable
-        corr = "{}_corrected".format(etvar)
-        num = 0
-        for point in tqdm(etdf.index.levels[1], total=len(etdf.index.levels[1])):
-            # print(point)
-            for month in range(1, 13):
-                corr_factor = gridmet_factors[month - 1][num]
-                mask = (etdf['month'] == month) & (etdf['FID'] == point)
-                etdf.loc[mask, 'factor'] = corr_factor
-            num += 1
-        etdf[corr] = etdf[etvar] * etdf['factor']
-        # print(df)
-        # Do I need additional attributes?
-        ds[corr] = xarray.Variable(['date', 'FID'], etdf[corr].to_xarray(), {'units': 'mm'})
-
-    # print()
-    # print(ds)
-    # print(ds['date'].values)
-    # print()
-    print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))  # 1 hour in on the corrections.
-    print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
-    # print()
-    # print(ds)
 
     # # Getting NLDAS precip
     start_time = time.time()
@@ -312,9 +301,10 @@ def step_3(fields, gm_out, out_file):
 
     # print()
     print("3/6 nldas: {:.2f} seconds".format(time.time() - start_time))
-    print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    if TRACK_MEM:
+        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    ds = ds.merge(nldas)
+    ds = ds.merge(nldas)  # does this work with an empty ds?
     # print()
     # print(ds)
 
@@ -338,7 +328,8 @@ def step_3(fields, gm_out, out_file):
     # print(snow)
     # print()
     print("4/6 snodas: {:.2f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
-    print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    if TRACK_MEM:
+        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     ds = ds.merge(snow)  # What about the Sept-May thing?
     # print()
@@ -352,7 +343,8 @@ def step_3(fields, gm_out, out_file):
     # print(props)
 
     print("5/6 soil and irrigation properties: {:.2f} seconds".format(time.time() - start_time))  # 1-ish seconds
-    print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    if TRACK_MEM:
+        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     ds = ds.merge(props)
     # print()
@@ -362,10 +354,10 @@ def step_3(fields, gm_out, out_file):
     ds.to_netcdf(out_file)
     print()
     print("6/6 Saving netcdf: {:.2f} seconds".format(time.time() - start_time))
-    print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    if TRACK_MEM:
+        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     print("Total Step 3 processing time: {:.2f} seconds".format(time.time() - all_3_start))
-    # 3 minutes. Where can I save time? Make saving faster, that's the slowest bit.
 
 
 def step_4(fields, step3_out, out_file, do_inv_irr=True):
@@ -432,7 +424,8 @@ def step_4(fields, step3_out, out_file, do_inv_irr=True):
                     ndvi_irr = ts
 
         print("EE etf and ndvi exports: {:.2f} seconds".format(time.time() - start_time))  # 70 seconds for 3 years.
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
         if ndvi_irr:
             # Finally, we use both the irrigation and NDVI data to run an analysis to infer
@@ -451,8 +444,9 @@ def step_4(fields, step3_out, out_file, do_inv_irr=True):
         # print()
         # print(rs)
         rs.to_netcdf(out_file)
-        print("Saving EE exports: {:.2f}".format(time.time() - start_time))
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+        print("Saving EE exports: {:.2f}".format(time.time() - start_time))  # very fast
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
 
 if __name__ == '__main__':
@@ -469,7 +463,8 @@ if __name__ == '__main__':
     # print(f"Available memory: {memory.available / (1024 ** 3):.2f} GB")
     # print(f"Memory percentage used: {memory.percent}%")
     print(f"Memory available: {memory.available / (1024 ** 2):.2f} MB ({100 - memory.percent:.2f}%)")
-    print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    if TRACK_MEM:
+        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     shp_name = '067_Park_fields'  # all 2000 fields
     # shp_name = 'mt_sid_uy10'  # switching to smaller fields for testing.
@@ -477,6 +472,7 @@ if __name__ == '__main__':
     shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
     gdf = gpd.read_file(shapefile_path)
     gdf.index = gdf['FID']
+    # gdf = gdf[~gdf.index.duplicated()]  # remove duplicated values in shapefile. Temp fix, must match GEE data too.
     # print(gdf)
     # step_1()  # Visualizing the study area
 
@@ -489,10 +485,12 @@ if __name__ == '__main__':
     # centroids = gdf_4326.geometry.centroid  # Does it like this one better? Nope...
 
     # output file locations
-    gm_nc = os.path.join(root, 'swim', 'uy_all_gm.nc')
-    step3 = os.path.join(root, 'swim', 'uy_all_step3.nc')
-    step4 = os.path.join(root, 'swim', 'uy_all_remote_sensing.nc')
-    final = os.path.join(root, 'swim', 'uy_all_input.nc')
+    abb = 'uy_all'
+    # abb = 'uy10'
+    gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
+    step3 = os.path.join(root, 'swim', f'{abb}_step3.nc')
+    step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing.nc')
+    final = os.path.join(root, 'swim', f'{abb}_input.nc')
 
     sys.path.append(root)
     sys.path.insert(0, os.path.abspath('../..'))
@@ -514,16 +512,16 @@ if __name__ == '__main__':
     start_t = time.time()
     step3 = xarray.open_dataset(step3)
     step4 = xarray.open_dataset(step4)
-    all_input = xarray.merge([step3, step4])  # causes datetime alignment and introduces nans, making dtype=float.
+    all_input = xarray.merge([gm_nc, step3, step4])  # causes dt alignment and introduces nans, making dtype=float.
     print()
     print(all_input)
-    all_input.to_netcdf(final)
+    all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?
     print()
     print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast.
 
     all_end = time.time()
     print()
-    print("Total input netcdf processing time: {:.0f}".format(all_end - all_start))
+    print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
 
     # # ------------------------------------
     # # Take this stuff out to a "run_all" file or something.
