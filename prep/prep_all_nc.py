@@ -78,8 +78,8 @@ def step_1():
 # TODO: remove hard-coded collections and use variables defined here
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 ETF = 'projects/usgs-gee-nhm-ssebop/assets/ssebop/landsat/c02'
-# We must specify which column in the shapefile represents the field's unique ID, in this case it is 'FID'
-FEATURE_ID = 'FID'
+# We must specify which column in the shapefile represents the field's unique ID, in this case it is 'fid'
+FEATURE_ID = 'fid'
 
 # # Step 3
 CLIMATE_COLS = {
@@ -129,7 +129,7 @@ def elevation_from_coordinate(lat, lon):
     return elev
 
 
-def step_3(fields, gm_out, out_file):
+def step_3(fields, gm_out, nldas_out, out_file):
     """ Contents of step 3 - gridmet and NLDAS (and step 2b!) data to NetCDF.
     fields: str, location of gee field shapefile asset, form of 'projects/cloud_project/assets/asset_filename'
     out_file:
@@ -169,7 +169,7 @@ def step_3(fields, gm_out, out_file):
         ds = ds.rename({'time': 'date'})
 
         ds = ds.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)  # very fast
-        ds = ds.swap_dims({"geometry": "FID"})
+        ds = ds.swap_dims({"geometry": FEATURE_ID})
         ds = ds.reset_coords("geometry", drop=True)  # Get rid of geometry index
 
         renaming = {'daily_mean_reference_evapotranspiration_alfalfa': 'etr_mm',
@@ -184,10 +184,10 @@ def step_3(fields, gm_out, out_file):
 
         # Additional variables: elevation (need ee) and vapor pressure
         elevs = [elevation_from_coordinate(lat=point.coords[0][1], lon=point.coords[0][0]) for point in centroids]
-        ds['elevation'] = xarray.Variable('FID', elevs, {'units': 'm'})
+        ds['elevation'] = xarray.Variable(FEATURE_ID, elevs, {'units': 'm'})
         p_air = air_pressure(ds['elevation'])
         ea_kpa = actual_vapor_pressure(ds['q'], p_air)
-        ds['ea_kpa'] = xarray.Variable(['date', 'FID'], ea_kpa.copy(),
+        ds['ea_kpa'] = xarray.Variable(['date', FEATURE_ID], ea_kpa.copy(),
                                        {'units': 'kPa', 'description': 'Actual vapor pressure'})  # This takes a bit.
         # Adjusting temperature data (started in K, turn to deg C)
         for i in ['tmax_c', 'tmin_c']:
@@ -198,7 +198,7 @@ def step_3(fields, gm_out, out_file):
             ds[i].attrs.update(temp_attr)
 
         # print()
-        print("1/6 Gridmet: {:.2f} seconds".format(time.time() - start_time))
+        print("1/6 Gridmet: {:.0f} seconds".format(time.time() - start_time))
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
@@ -209,7 +209,11 @@ def step_3(fields, gm_out, out_file):
         start_time = time.time()
         etdf['date'] = [i[0] for i in etdf.index]  # slow at the beginning, but I think it's worth it.
         etdf['month'] = [i[0].month for i in etdf.index]
-        etdf['FID'] = [i[1] for i in etdf.index]
+        # Convert fid to int if not already
+        if isinstance(etdf[FEATURE_ID][0], str):  # strings in fid will slow things daramatically in 'for point' loop below.
+            etdf[FEATURE_ID] = [int(i[1][-4:]) for i in etdf.index]  # save as int, assuming SID formating.
+        else:
+            etdf[FEATURE_ID] = [i[1] for i in etdf.index]  # take value as-is.
         # print(len(etdf))
         # print("reshuffling dataframe to allow vectorization: {:.2f} seconds".format(time.time() - start_time)) ~1min
         # print(etdf)
@@ -231,87 +235,98 @@ def step_3(fields, gm_out, out_file):
             etdf['factor'] = np.zeros_like(etdf[etvar])  # overwritten for the other variable
             corr = "{}_corrected".format(etvar)
             num = 0
-            for point in tqdm(etdf.index.levels[1], total=len(etdf.index.levels[1])):
-                # print(point)
+            for point in tqdm(etdf[FEATURE_ID].unique(), total=len(etdf[FEATURE_ID].unique())):
                 for month in range(1, 13):
                     corr_factor = gridmet_factors[month - 1][num]
-                    mask = (etdf['month'] == month) & (etdf['FID'] == point)
+                    mask = (etdf['month'] == month) & (etdf[FEATURE_ID] == point)  # the longer fid shouldn't be slowing it down TEN TIMES, right?!
                     etdf.loc[mask, 'factor'] = corr_factor
                 num += 1
             etdf[corr] = etdf[etvar] * etdf['factor']
             # print(etdf[corr])
             # Do I need additional attributes?
-            ds[corr] = xarray.Variable(['date', 'FID'], etdf[corr].to_xarray(), {'units': 'mm'})
+            ds[corr] = xarray.Variable(['date', FEATURE_ID], etdf[corr].to_xarray(), {'units': 'mm'})
             # ds[corr] = etdf[corr].to_xarray()  # this seems to work just fine...
 
-        print("2/6 ET corrections: {:.2f} seconds".format(time.time() - start_time))
+        print("2/6 ET corrections: {:.0f} seconds".format(time.time() - start_time))
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
         start_time = time.time()
-        ds.to_netcdf(gm_out, engine="netcdf4")  # memory too full to save to netcdf?
-        print("Gridmet saving to nc: {:.2f} seconds".format(time.time() - start_time))
+        ds.to_netcdf(gm_out, engine="netcdf4")
+        print("Gridmet saving to nc: {:.0f} seconds".format(time.time() - start_time))
         ds_coords = xarray.Coordinates(ds.coords)  # save coords for initializing next ds.
 
     # create new ds with coordinates saved above
     ds = xarray.Dataset(coords=ds_coords)
 
-    # # Getting NLDAS precip
-    start_time = time.time()
-    # gridmet is utc-6, US/Central, NLDAS is UTC-0
-    # shifting NLDAS to UTC-6 is the most straightforward alignment
-    s = pd.to_datetime(start) - timedelta(days=1)
-    e = pd.to_datetime(end) + timedelta(days=2)
-    temp = centroids.index
-    centroids.index = np.arange(10)  # It failed earlier because it had a non-zero-starting index.
-    nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='grib')  # pd df, 11s
-    centroids.index = temp  # Revert back to FID so it doesn't screw anything up later.
-    # I don't know how to check that this preserves order...
-    nldas.index = nldas.index.rename('date')
-    hr_cols = ['prcp_hr_{}'.format(str(i).rjust(2, '0')) for i in range(0, 24)]
+    if os.path.exists(nldas_out):
+        print('3/6 NlDAS: {} exists, skipping'.format(nldas_out))
+    else:
+        # # Getting NLDAS precip - something before the for loop is very slow.
+        start_time = time.time()
+        # gridmet is utc-6, US/Central, NLDAS is UTC-0
+        # shifting NLDAS to UTC-6 is the most straightforward alignment
+        s = pd.to_datetime(start) - timedelta(days=1)
+        e = pd.to_datetime(end) + timedelta(days=2)
+        temp = centroids.index
+        centroids.index = np.arange(len(centroids))
+        nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='grib')  # pd df, 11s
+        print("  NLDAS raw data fetched. ({:.0f} seconds)".format(time.time() - start_time))
+        centroids.index = temp  # Revert back to fid so it doesn't screw anything up later.
+        # I don't know how to check that this preserves order...
+        nldas.index = nldas.index.rename('date')
+        hr_cols = ['prcp_hr_{}'.format(str(i).rjust(2, '0')) for i in range(0, 24)]
 
-    central = pytz.timezone('US/Central')
-    nldas = nldas.tz_convert(central)
-    hourly_ppt = nldas.pivot_table(columns=nldas.index.hour, index=nldas.index.date)  # works!
-    hourly_ppt = hourly_ppt.loc[ds['date'].values]  # got rid of like 3 rows.
+        central = pytz.timezone('US/Central')
+        nldas = nldas.tz_convert(central)
+        hourly_ppt = nldas.pivot_table(columns=nldas.index.hour, index=nldas.index.date)  # works!
+        hourly_ppt = hourly_ppt.loc[ds['date'].values]  # got rid of like 3 rows.
 
-    # rename columns
-    hourly_ppt = hourly_ppt.droplevel(level='variable', axis=1)
-    hourly_ppt = hourly_ppt.rename(columns=dict(zip(range(24), hr_cols)), level='date')
-    # hourly_ppt.columns = hourly_ppt.columns.set_names('variable', level=1)  # I think this also works?
-    hourly_ppt.columns = hourly_ppt.columns.set_names(['FID', 'variable'])
-    hourly_ppt.index = hourly_ppt.index.rename('date')
+        # rename columns
+        hourly_ppt = hourly_ppt.droplevel(level='variable', axis=1)
+        hourly_ppt = hourly_ppt.rename(columns=dict(zip(range(24), hr_cols)), level='date')
+        # hourly_ppt.columns = hourly_ppt.columns.set_names('variable', level=1)  # I think this also works?
+        hourly_ppt.columns = hourly_ppt.columns.set_names([FEATURE_ID, 'variable'])
+        hourly_ppt.index = hourly_ppt.index.rename('date')
+        print("  NLDAS data reformatted. ({:.0f} seconds)".format(time.time() - start_time))
 
-    # print()
-    # print(hourly_ppt)
+        # print()
+        # print(hourly_ppt)
 
-    for i in hourly_ppt.columns.levels[0]:
-        nan_ct = np.sum(np.isnan(hourly_ppt[i].values), axis=0)
-        if sum(nan_ct) > 100:
-            # raise ValueError('Too many NaN in NLDAS data')  # Highest number is approaching 2% of data... Fine?
-            print('{}: Too many NaN in NLDAS data ({} NaN)'.format(i, sum(nan_ct)))
-        if np.any(nan_ct):
-            hourly_ppt[i] = hourly_ppt[i].fillna(0.)
-        # How to supress "fragmented" warnings below?
-        hourly_ppt[i, 'nld_ppt_d'] = hourly_ppt[i].sum(axis=1)  # Many same entries, there are 2 cells for 10 fields.
-    hourly_ppt = hourly_ppt.stack(level=0)  # moves multiindex column level to the index.
-    nldas = hourly_ppt.to_xarray()
-    # Make coords match the gridmet data
-    nldas = nldas.assign_coords({'date': ds['date'], 'FID': ds['FID']})
+        for i in hourly_ppt.columns.levels[0]:  # this is very fast.
+            nan_ct = np.sum(np.isnan(hourly_ppt[i].values), axis=0)
+            if sum(nan_ct) > 100:
+                # raise ValueError('Too many NaN in NLDAS data')  # Highest number is approaching 2% of data... Fine?
+                print('{}: Too many NaN in NLDAS data ({} NaN)'.format(i, sum(nan_ct)))
+            if np.any(nan_ct):
+                hourly_ppt[i] = hourly_ppt[i].fillna(0.)
+            # How to supress "fragmented" warnings below?
+            hourly_ppt[i, 'nld_ppt_d'] = hourly_ppt[i].sum(axis=1)  # Many same entries, there are 2 cells for 10 fields.
+        hourly_ppt = hourly_ppt.stack(level=0)  # moves multiindex column level to the index.
+        print("  NLDAS data summed/gapfilled. ({:.0f} seconds)".format(time.time() - start_time))
 
-    # print()
-    print("3/6 nldas: {:.2f} seconds".format(time.time() - start_time))
-    if TRACK_MEM:
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+        nldas = hourly_ppt.to_xarray()
+        # Make coords match the gridmet data
+        nldas = nldas.assign_coords({'date': ds['date'], FEATURE_ID: ds[FEATURE_ID]})
 
-    ds = ds.merge(nldas)  # does this work with an empty ds?
-    # print()
-    # print(ds)
+        # print()
+        print("3/6 NLDAS: {:.0f} seconds".format(time.time() - start_time))  # 4 hours.
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+
+        start_time = time.time()
+        ds.to_netcdf(nldas_out, engine="netcdf4")
+        print("  NLDAS netcdf successfully saved. ({:.0f} seconds)".format(time.time() - start_time))
+
+        # ds = ds.merge(nldas)  # does this work with an empty ds? Did this take half an hour?
+        # print()
+        # print(ds)
 
     # SNODAS
+    print("  Begin SNODAS fetching:")
     start_time = time.time()
     snow_yrs = []
-    for y in range(2005, 2024):
+    for y in tqdm(range(2005, 2024), total=2024-2005):
         snow_yr = xarray.open_dataset(os.path.join(main_dir, "snodas/netcdf2/{}WGS84MT.nc".format(y)))
         # Extract field locations
         snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
@@ -321,13 +336,13 @@ def step_3(fields, gm_out, out_file):
     snow = xarray.concat(snow_yrs, "date")
     snow = snow.rename({'Band1': 'swe_m'})
     # Mess with file so it can be saved as a netcdf.
-    snow = snow.swap_dims({"geometry": "FID"})
+    snow = snow.swap_dims({"geometry": "fid"})
     snow = snow.reset_coords("geometry", drop=True)  # Get rid of geometry index
 
     # print()
     # print(snow)
     # print()
-    print("4/6 snodas: {:.2f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
+    print("4/6 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
@@ -337,12 +352,13 @@ def step_3(fields, gm_out, out_file):
 
     # Soil and irrigation properties
     start_time = time.time()
+    # TODO: remove hard-coded 'FID'
     irr = get_irrigation_direct_nc(fields, debug=False, selector=FEATURE_ID)
     ssurgo = get_ssurgo_direct_nc(fields, debug=False, selector=FEATURE_ID)
     props = irr.merge(ssurgo)
     # print(props)
 
-    print("5/6 soil and irrigation properties: {:.2f} seconds".format(time.time() - start_time))  # 1-ish seconds
+    print("5/6 soil and irrigation properties: {:.0f} seconds".format(time.time() - start_time))  # 1-ish seconds
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
@@ -353,11 +369,11 @@ def step_3(fields, gm_out, out_file):
     start_time = time.time()
     ds.to_netcdf(out_file)
     print()
-    print("6/6 Saving netcdf: {:.2f} seconds".format(time.time() - start_time))
+    print("6/6 Saving netcdf: {:.0f} seconds".format(time.time() - start_time))
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    print("Total Step 3 processing time: {:.2f} seconds".format(time.time() - all_3_start))
+    print("Total Step 3 processing time: {:.0f} seconds".format(time.time() - all_3_start))
 
 
 def step_4(fields, step3_out, out_file, do_inv_irr=True):
@@ -466,13 +482,16 @@ if __name__ == '__main__':
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    shp_name = '067_Park_fields'  # all 2000 fields
-    # shp_name = 'mt_sid_uy10'  # switching to smaller fields for testing.
+    shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
+    # shp_name = 'mt_sid_uy10'  # switching to smaller set of fields for testing.
     ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
-    shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
+    shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
     gdf = gpd.read_file(shapefile_path)
-    gdf.index = gdf['FID']
-    # gdf = gdf[~gdf.index.duplicated()]  # remove duplicated values in shapefile. Temp fix, must match GEE data too.
+    gdf.index = gdf[FEATURE_ID]
+    gdf = gdf.to_crs('EPSG:5071')
+    # gdf['fid_1'] = [int(i[-4:]) for i in gdf.index]  # looks good!
+    # gdf['fid_2'] = [i[-4:] for i in gdf.index]
+    # gdf['fid_3'] = [i for i in gdf.index]
     # print(gdf)
     # step_1()  # Visualizing the study area
 

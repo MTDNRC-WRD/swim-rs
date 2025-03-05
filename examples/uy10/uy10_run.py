@@ -455,7 +455,7 @@ if __name__ == '__main__':
     sys.path.insert(0, os.path.abspath('../..'))
     sys.setrecursionlimit(5000)  # What does this do?
 
-    print()
+    # print()
     # if not is_authorized():
     #     ee.Authenticate()
     # ee.Initialize()
