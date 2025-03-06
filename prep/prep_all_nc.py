@@ -425,38 +425,77 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
     else:
         rs_xrs = []
         start_time = time.time()
-        for mask_type in types_:
-            for sensing_param in sensing_params:
-                # This bit is slow.
-                if sensing_param == 'etf':
-                    imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
-                                                         end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
-                elif sensing_param == 'ndvi':
-                    imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
-                                                          end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
-                else:
-                    imgs = None
-                # print()
-                # print(result1)
+        if end_yr > 2022:
+            # Pull in ETF data from OpenET instead. This relies on data manually downloaded
+            # after using code in data_extraction/openet_export.py
+            # Also, since data is not on GEE, ETF will be insensitive to irrigated fraction of field.
+            for mask_type in types_:
+                for sensing_param in sensing_params:
+                    # This bit is slow.
+                    if sensing_param == 'etf':
+                        # Do something with OpenET stuff
+                        imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
+                                                             end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                    elif sensing_param == 'ndvi':
+                        imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
+                                                              end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                    else:
+                        imgs = None
+                    # print()
+                    # print(result1)
 
-                # This bit is fast.
-                ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
-                                                             feature_id=FEATURE_ID,
-                                                             var_name='{}_{}'.format(sensing_param, mask_type))
-                # print()
-                # print(ts)
-                # print(count)
+                    # This bit is fast.
+                    ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
+                                                                 feature_id=FEATURE_ID,
+                                                                 var_name='{}_{}'.format(sensing_param, mask_type))
+                    # print()
+                    # print(ts)
+                    # print(count)
 
-                # plt.figure()
-                # for i in range(10):
-                #     plt.plot(ts.to_dataarray().values[0, :, i])
-                #     plt.plot(count.to_dataarray().values[0, :, i])
-                # plt.show()
+                    # plt.figure()
+                    # for i in range(10):
+                    #     plt.plot(ts.to_dataarray().values[0, :, i])
+                    #     plt.plot(count.to_dataarray().values[0, :, i])
+                    # plt.show()
 
-                rs_xrs.append(ts)
-                rs_xrs.append(count)  # What does count end up being used for?
-                if mask_type == 'irr' and sensing_param == 'ndvi':
-                    ndvi_irr = ts
+                    rs_xrs.append(ts)
+                    rs_xrs.append(count)  # What does count end up being used for?
+                    if mask_type == 'irr' and sensing_param == 'ndvi':
+                        ndvi_irr = ts
+        else:
+            # Get ETF from GEE SSEBOP
+            for mask_type in types_:
+                for sensing_param in sensing_params:
+                    # This bit is slow.
+                    if sensing_param == 'etf':
+                        imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
+                                                             end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                    elif sensing_param == 'ndvi':
+                        imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
+                                                              end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                    else:
+                        imgs = None
+                    # print()
+                    # print(result1)
+
+                    # This bit is fast.
+                    ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
+                                                                 feature_id=FEATURE_ID,
+                                                                 var_name='{}_{}'.format(sensing_param, mask_type))
+                    # print()
+                    # print(ts)
+                    # print(count)
+
+                    # plt.figure()
+                    # for i in range(10):
+                    #     plt.plot(ts.to_dataarray().values[0, :, i])
+                    #     plt.plot(count.to_dataarray().values[0, :, i])
+                    # plt.show()
+
+                    rs_xrs.append(ts)
+                    rs_xrs.append(count)  # What does count end up being used for?
+                    if mask_type == 'irr' and sensing_param == 'ndvi':
+                        ndvi_irr = ts
 
         print("EE etf and ndvi exports: {:.2f} seconds".format(time.time() - start_time))  # 70 seconds for 3 years.
         if TRACK_MEM:
@@ -502,7 +541,7 @@ if __name__ == '__main__':
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     # shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
-    shp_name = 'mt_sid_uy10'  # switching to smaller set of fields for testing.
+    shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
     ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
     # shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
     shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))

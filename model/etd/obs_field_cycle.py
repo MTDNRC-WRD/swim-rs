@@ -10,6 +10,7 @@ import os.path
 import numpy as np
 import pandas as pd
 import calendar
+import xarray
 
 from model.etd import calculate_height
 from model.etd import compute_field_et
@@ -75,15 +76,14 @@ def year_len(year):
     return 366 if calendar.isleap(year) else 365
 
 
-def field_day_loop_nc_1(config, plots, debug_flag=False, params=None):
-    # This will need to be rewritten from the bottom up to mesh with the netcdf input.
+def field_day_loop_nc_1(config, plots, debug_flag=False, params=None, save_out=None):
     etf, swe = None, None
     size = len(plots.input['FID'].values)
     tracker = PlotTracker(size)
     tracker.load_soils_nc(plots)
 
     # apply calibration parameter updates here
-    if config.calibration:
+    if config.calibration:  # this has not been updated
         # load PEST++ parameter proposition
         cal_arr = {k: np.zeros((1, size)) for k in config.calibration_groups}
 
@@ -107,7 +107,7 @@ def field_day_loop_nc_1(config, plots, debug_flag=False, params=None):
             if debug_flag:
                 print('{}: {}'.format(k, ['{:.2f}'.format(p) for p in v.flatten()]))
 
-    elif config.forecast:
+    elif config.forecast:  # this has not been updated
 
         param_arr = {k: np.zeros((1, size)) for k in config.forecast_parameter_groups}
 
@@ -313,13 +313,17 @@ def field_day_loop_nc_1(config, plots, debug_flag=False, params=None):
             swe[j, :] = tracker.swe
 
     if debug_flag:
-        # pass final dataframe to calling script
-
+        # pass final dataset to calling script
         tracker.crop_df = {fid: pd.DataFrame().from_dict(tracker.crop_df[fid], orient='index')[OUTPUT_FMT]
-                           for fid in targets}
+                           for fid in targets}  # turn nested dict to single dict of pd df
         for fid in tracker.crop_df:
-            tracker.crop_df[fid].index = pd.to_datetime(tracker.crop_df[fid].index)
-        return tracker.crop_df
+            tracker.crop_df[fid].index = pd.to_datetime(tracker.crop_df[fid].index)  # turn indices into dt
+            tracker.crop_df[fid].index = tracker.crop_df[fid].index.rename('date')  # rename index (should be after concat)
+        out_ds_list = [tracker.crop_df[fid].to_xarray() for fid in targets]  # convert to xarray
+        out_ds = xarray.concat(out_ds_list, pd.Index(tracker.crop_df.keys(), name='FID'))  # create out 1 ds w/ 2 dims
+        if save_out:
+            out_ds.to_netcdf(save_out, engine='netcdf4')
+        return out_ds
 
     else:
         # if not debug, just return the actual ET and SWE results as ndarray

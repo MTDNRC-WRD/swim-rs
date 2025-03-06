@@ -498,33 +498,42 @@ if __name__ == '__main__':
     fields = SamplePlots()
     fields.initialize_plot_data_nc(config)  # loads
     var = list(fields.input.keys())
+    # print all variables in the input data
     for i in range(len(var)):
         print(i, var[i])
-    print(fields.input)
+    print(fields.input)  # print xarray dataset
 
     from model.etd import obs_field_cycle
 
-    # Let's time this run - slow! :(
+    debug = True
+
+    # Let's time this run
     start_time = time.time()
-    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=True)
+    save_file = 'path_to_save_nc_to'
+    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=debug, save_out=None)
+    # Debug flag appears to save 6 seconds at the moment?
     end_time = time.time()
     print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
 
-    # print(fields.output)
+    if debug:
+        print(fields.output)  # print xarray dataset
+    else:
+        print(np.shape(fields.output))
+        print(fields.output)  # tuple of arrays? I can't tell what shape everything is.
 
-    # Save the results for a given field and plot them.
-    field = 354
-    out_df = fields.output[field].copy()
+    # # Save the results for a given field and plot them.
+    # field = 354
+    # out_df = fields.output[field].copy()
+    #
+    # print()
+    # print(out_df.head())
+    # print(out_df.columns)
+    #
+    # out_data_loc = os.path.join(root, 'examples', 'uy10', 'combined_output_{}.csv'.format('354'))
 
-    print()
-    print(out_df.head())
-    print(out_df.columns)
-
-    out_data_loc = os.path.join(root, 'examples', 'uy10', 'combined_output_{}.csv'.format('354'))
-
-    in_df = fields.input_to_dataframe(field)
-    df = pd.concat([out_df, in_df], axis=1, join='inner', ignore_index=False)
-    df.to_csv(out_data_loc)
-    print(df.shape)
+    # in_df = fields.input_to_dataframe(field)
+    # df = pd.concat([out_df, in_df], axis=1, join='inner', ignore_index=False)
+    # df.to_csv(out_data_loc)
+    # print(df.shape)
 
 # ========================= EOF ====================================================================
