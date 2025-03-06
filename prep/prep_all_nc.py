@@ -79,7 +79,7 @@ def step_1():
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 ETF = 'projects/usgs-gee-nhm-ssebop/assets/ssebop/landsat/c02'
 # We must specify which column in the shapefile represents the field's unique ID, in this case it is 'fid'
-FEATURE_ID = 'fid'
+FEATURE_ID = 'FID'
 
 # # Step 3
 CLIMATE_COLS = {
@@ -129,7 +129,7 @@ def elevation_from_coordinate(lat, lon):
     return elev
 
 
-def step_3(fields, gm_out, nldas_out, out_file):
+def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024):
     """ Contents of step 3 - gridmet and NLDAS (and step 2b!) data to NetCDF.
     fields: str, location of gee field shapefile asset, form of 'projects/cloud_project/assets/asset_filename'
     out_file:
@@ -145,14 +145,18 @@ def step_3(fields, gm_out, nldas_out, out_file):
 
     gmet_list = []  # empty list for storing gridmet data for each variable.
 
-    start = '1987-01-01'
-    end = '2023-12-31'
+    # start = '1987-01-01'
+    # end = '2023-12-31'
     # start = '2018-01-01'
     # end = '2018-12-31'
+
+    beg_dts = '{}-01-01'.format(start)
+    end_dts = '{}-12-31'.format(end)
 
     start_time = time.time()
     if os.path.exists(gm_out):
         print('1/6 Gridmet: {} exists, skipping'.format(gm_out))
+        print()
         # extracting coordinates and data for corrections below
         ds = xarray.open_dataset(gm_out)
         # etdf = ds[['etr_mm', 'eto_mm']].to_dataframe()
@@ -160,7 +164,7 @@ def step_3(fields, gm_out, nldas_out, out_file):
     else:
         for p, col in CLIMATE_COLS.items():  # 6s
             # No buffer added in GridMet from chmdata, so any desired buffer needs to be added here.
-            gmet = GridMet(variable=p, start=start, end=end,
+            gmet = GridMet(variable=p, start=beg_dts, end=end_dts,
                            bbox=BBox(bnds[0] - 0.1, bnds[2] - 0.1, bnds[3] + 0.1, bnds[1] + 0.1))
             gmet = gmet.subset_nc(return_array=True)  # returns an xarray.Dataset w/ dimentions(lat, lon, time)
             gmet_input = gmet[list(gmet.data_vars)[0]]  # indexes xarray.Dataset for the data variable
@@ -210,7 +214,7 @@ def step_3(fields, gm_out, nldas_out, out_file):
         etdf['date'] = [i[0] for i in etdf.index]  # slow at the beginning, but I think it's worth it.
         etdf['month'] = [i[0].month for i in etdf.index]
         # Convert fid to int if not already
-        if isinstance(etdf[FEATURE_ID][0], str):  # strings in fid will slow things daramatically in 'for point' loop below.
+        if isinstance(etdf.index[0][1], str):  # str in fid will slow things daramatically in 'for point' loop below.
             etdf[FEATURE_ID] = [int(i[1][-4:]) for i in etdf.index]  # save as int, assuming SID formating.
         else:
             etdf[FEATURE_ID] = [i[1] for i in etdf.index]  # take value as-is.
@@ -253,21 +257,22 @@ def step_3(fields, gm_out, nldas_out, out_file):
 
         start_time = time.time()
         ds.to_netcdf(gm_out, engine="netcdf4")
-        print("Gridmet saving to nc: {:.0f} seconds".format(time.time() - start_time))
+        print("  Gridmet saving to nc: {:.0f} seconds".format(time.time() - start_time))
         ds_coords = xarray.Coordinates(ds.coords)  # save coords for initializing next ds.
 
-    # create new ds with coordinates saved above
-    ds = xarray.Dataset(coords=ds_coords)
-
+    # On my laptop: "pynldas2.exceptions.NLDASServiceError: NLDAS2 web service returned the following error:"
+    # And no error is given.
     if os.path.exists(nldas_out):
         print('3/6 NlDAS: {} exists, skipping'.format(nldas_out))
+        print()
     else:
         # # Getting NLDAS precip - something before the for loop is very slow.
+        print("  Begin NLDAS fetching:")
         start_time = time.time()
         # gridmet is utc-6, US/Central, NLDAS is UTC-0
         # shifting NLDAS to UTC-6 is the most straightforward alignment
-        s = pd.to_datetime(start) - timedelta(days=1)
-        e = pd.to_datetime(end) + timedelta(days=2)
+        s = pd.to_datetime(beg_dts) - timedelta(days=1)
+        e = pd.to_datetime(end_dts) + timedelta(days=2)
         temp = centroids.index
         centroids.index = np.arange(len(centroids))
         nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='grib')  # pd df, 11s
@@ -307,6 +312,7 @@ def step_3(fields, gm_out, nldas_out, out_file):
 
         nldas = hourly_ppt.to_xarray()
         # Make coords match the gridmet data
+        ds = xarray.Dataset(coords=ds_coords)
         nldas = nldas.assign_coords({'date': ds['date'], FEATURE_ID: ds[FEATURE_ID]})
 
         # print()
@@ -315,44 +321,56 @@ def step_3(fields, gm_out, nldas_out, out_file):
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
         start_time = time.time()
-        ds.to_netcdf(nldas_out, engine="netcdf4")
+        nldas.to_netcdf(nldas_out, engine="netcdf4")
         print("  NLDAS netcdf successfully saved. ({:.0f} seconds)".format(time.time() - start_time))
 
         # ds = ds.merge(nldas)  # does this work with an empty ds? Did this take half an hour?
         # print()
         # print(ds)
 
-    # SNODAS
-    print("  Begin SNODAS fetching:")
-    start_time = time.time()
-    snow_yrs = []
-    for y in tqdm(range(2005, 2024), total=2024-2005):
-        snow_yr = xarray.open_dataset(os.path.join(main_dir, "snodas/netcdf2/{}WGS84MT.nc".format(y)))
-        # Extract field locations
-        snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
-        snow_yr = snow_yr.drop_vars(['crs', 'Band2', 'Band3', 'Band4', 'Band5', 'Band6', 'Band7', 'Band8'])
-        snow_yr = snow_yr.rename({'time': 'date'})
-        snow_yrs.append(snow_yr)
-    snow = xarray.concat(snow_yrs, "date")
-    snow = snow.rename({'Band1': 'swe_m'})
-    # Mess with file so it can be saved as a netcdf.
-    snow = snow.swap_dims({"geometry": "fid"})
-    snow = snow.reset_coords("geometry", drop=True)  # Get rid of geometry index
+    # SNODAS - fetch data by calendar year, not individual dates.
+    if os.path.exists(snodas_out):
+        print('4/6 SNODAS: "{}" exists, skipping'.format(snodas_out))
+        print()
+    else:
+        print("  Begin SNODAS fetching:")
+        start_time = time.time()
+        snow_yrs = []
+        no_yrs = []
+        for y in tqdm(range(start, end+1), total=end+1-start):
+            snow_file = os.path.join(main_dir, "snodas/netcdf2/{}WGS84MT.nc".format(y))
+            if os.path.exists(snow_file):  # Only retrieve data that has been saved and formatted correctly.
+                snow_yr = xarray.open_dataset(snow_file)
+                # Extract field locations
+                snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
+                snow_yr = snow_yr.drop_vars(['crs', 'Band2', 'Band3', 'Band4', 'Band5', 'Band6', 'Band7', 'Band8'])
+                snow_yr = snow_yr.rename({'time': 'date'})
+                snow_yrs.append(snow_yr)
+            else:
+                no_yrs.append(y)
+        snow = xarray.concat(snow_yrs, "date")
+        snow = snow.rename({'Band1': 'swe_m'})
+        # Mess with file so it can be saved as a netcdf.
+        snow = snow.swap_dims({"geometry": "fid"})
+        snow = snow.reset_coords("geometry", drop=True)  # Get rid of geometry index
 
-    # print()
-    # print(snow)
-    # print()
-    print("4/6 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
-    if TRACK_MEM:
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+        # print()
+        # print(snow)
+        # print()
+        if no_yrs:
+            print("  The following years do not have available SNODAS data, "
+                  "and were not included in the resulting file: {}".format(no_yrs))
+        print("4/6 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    ds = ds.merge(snow)  # What about the Sept-May thing?
-    # print()
-    # print(ds)
+        snow.to_netcdf(snodas_out, engine="netcdf4")
+        # ds = ds.merge(snow)  # What about the Sept-May thing?
+        # print()
+        # print(ds)
 
     # Soil and irrigation properties
     start_time = time.time()
-    # TODO: remove hard-coded 'FID'
     irr = get_irrigation_direct_nc(fields, debug=False, selector=FEATURE_ID)
     ssurgo = get_ssurgo_direct_nc(fields, debug=False, selector=FEATURE_ID)
     props = irr.merge(ssurgo)
@@ -362,21 +380,22 @@ def step_3(fields, gm_out, nldas_out, out_file):
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    ds = ds.merge(props)
+    start_time = time.time()
+    props.to_netcdf(prop_out, engine="netcdf4")
+    # ds = ds.merge(props)
     # print()
     # print(ds)
 
-    start_time = time.time()
-    ds.to_netcdf(out_file)
+    # ds.to_netcdf(out_file)
     print()
-    print("6/6 Saving netcdf: {:.0f} seconds".format(time.time() - start_time))
+    print("  Saving props netcdf: {:.0f} seconds".format(time.time() - start_time))
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     print("Total Step 3 processing time: {:.0f} seconds".format(time.time() - all_3_start))
 
 
-def step_4(fields, step3_out, out_file, do_inv_irr=True):
+def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
     """
     fields: str, location of gee field shapefile asset, form of 'projects/cloud_project/assets/asset_filename'
     out_file:
@@ -394,7 +413,7 @@ def step_4(fields, step3_out, out_file, do_inv_irr=True):
     else:
         types_ = ['irr']
     sensing_params = ['ndvi', 'etf']
-    strt_yr, end_yr = 2004, 2023
+    # strt_yr, end_yr = 2004, 2023
 
     ndvi_irr = None
 
@@ -410,10 +429,10 @@ def step_4(fields, step3_out, out_file, do_inv_irr=True):
             for sensing_param in sensing_params:
                 # This bit is slow.
                 if sensing_param == 'etf':
-                    imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=strt_yr,
+                    imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
                                                          end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
                 elif sensing_param == 'ndvi':
-                    imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=strt_yr,
+                    imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
                                                           end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
                 else:
                     imgs = None
@@ -421,7 +440,7 @@ def step_4(fields, step3_out, out_file, do_inv_irr=True):
                 # print(result1)
 
                 # This bit is fast.
-                ts, count = clustered_landsat_time_series_nc(imgs, start_yr=strt_yr, end_yr=end_yr,
+                ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
                                                              feature_id=FEATURE_ID,
                                                              var_name='{}_{}'.format(sensing_param, mask_type))
                 # print()
@@ -446,7 +465,7 @@ def step_4(fields, step3_out, out_file, do_inv_irr=True):
         if ndvi_irr:
             # Finally, we use both the irrigation and NDVI data to run an analysis to infer
             # simple agricultural information and get an estimate of the potential irrigation dates.
-            irr = step3_out
+            irr = props_out
             # cuttings_nc = os.path.join(landsat, 'uy10_cuttings.nc')
             irr_days = detect_cuttings_nc(ndvi_irr, irr, irr_threshold=0.1)
             rs_xrs.append(irr_days)
@@ -482,10 +501,11 @@ if __name__ == '__main__':
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
-    # shp_name = 'mt_sid_uy10'  # switching to smaller set of fields for testing.
+    # shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
+    shp_name = 'mt_sid_uy10'  # switching to smaller set of fields for testing.
     ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
-    shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
+    # shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
+    shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
     gdf = gpd.read_file(shapefile_path)
     gdf.index = gdf[FEATURE_ID]
     gdf = gdf.to_crs('EPSG:5071')
@@ -504,10 +524,12 @@ if __name__ == '__main__':
     # centroids = gdf_4326.geometry.centroid  # Does it like this one better? Nope...
 
     # output file locations
-    abb = 'uy_all'
-    # abb = 'uy10'
+    # abb = 'uy_all'
+    abb = 'uy10'
     gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
-    step3 = os.path.join(root, 'swim', f'{abb}_step3.nc')
+    nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
+    sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
+    prop_nc = os.path.join(root, 'swim', f'{abb}_props.nc')
     step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing.nc')
     final = os.path.join(root, 'swim', f'{abb}_input.nc')
 
@@ -523,15 +545,20 @@ if __name__ == '__main__':
         ee.Authenticate()  # cannot reach this line?
     ee.Initialize()
 
-    # both steps will only run if out_file is not detected.
-    step_3(ee_fields, gm_nc, step3)
-    step_4(ee_fields, step3, step4)
+    beg_year = 2020
+    end_year = 2023
+
+    # both steps will only run if any out files are not detected.
+    step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
+    step_4(ee_fields, prop_nc, step4, beg_year, end_year)  # is all required data in prop_nc?
 
     # merging the resulting files
     start_t = time.time()
-    step3 = xarray.open_dataset(step3)
-    step4 = xarray.open_dataset(step4)
-    all_input = xarray.merge([gm_nc, step3, step4])  # causes dt alignment and introduces nans, making dtype=float.
+    all_ncs = []
+    # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
+    for file in [gm_nc, sno_nc, prop_nc, step4]:
+        all_ncs.append(xarray.open_dataset(file))
+    all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
     print()
     print(all_input)
     all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?

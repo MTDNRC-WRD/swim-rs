@@ -82,7 +82,7 @@ def get_irrigation(fields, desc, debug=False, selector='FID'):
                                   scale=30)
 
     if debug:
-        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+        debug = means.filterMetadata(selector, 'equals', 1789).getInfo()
 
     task = ee.batch.Export.table.toCloudStorage(
         means,
@@ -127,7 +127,7 @@ def get_irrigation_direct_nc(fields, debug=False, selector='FID'):
                                   scale=30)
 
     if debug:
-        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+        debug = means.filterMetadata(selector, 'equals', 1789).getInfo()
 
     # Export dataframe
     means_df = ee.data.computeFeatures({
@@ -137,7 +137,7 @@ def get_irrigation_direct_nc(fields, debug=False, selector='FID'):
 
     # turn many columns into one for indexing, also drops extra columns
     means_df = means_df.melt(
-        id_vars=["FID"],
+        id_vars=[selector],
         value_vars=band_names,
         var_name="year",
         value_name="irr",
@@ -147,9 +147,9 @@ def get_irrigation_direct_nc(fields, debug=False, selector='FID'):
     means_df['year'] = [int(i[-4:]) for i in means_df['year']]
 
     # Create multiindex for xarray formatting
-    mi = pd.MultiIndex.from_frame(means_df[['FID', 'year']])
+    mi = pd.MultiIndex.from_frame(means_df[[selector, 'year']])
     means_df.index = mi
-    means_df = means_df.drop(columns=['FID', 'year'])
+    means_df = means_df.drop(columns=[selector, 'year'])
 
     means_xr = means_df.to_xarray()
 
@@ -173,7 +173,7 @@ def get_ssurgo(fields, desc, debug=False, selector='FID'):
                               scale=30)
 
     if debug:
-        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+        debug = means.filterMetadata(selector, 'equals', 1789).getInfo()
 
     task = ee.batch.Export.table.toCloudStorage(
         means,
@@ -204,7 +204,7 @@ def get_ssurgo_direct_nc(fields, debug=False, selector='FID'):
                               scale=30)
 
     if debug:
-        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+        debug = means.filterMetadata(selector, 'equals', 1789).getInfo()
 
     # Export dataframe
     means_df = ee.data.computeFeatures({
@@ -212,7 +212,7 @@ def get_ssurgo_direct_nc(fields, debug=False, selector='FID'):
         'fileFormat': 'PANDAS_DATAFRAME'
     })
 
-    means_df.index = means_df['FID']
+    means_df.index = means_df[selector]
     means_df['area_sq_m'] = means_df['acres'] * 4046.86  # save area
     means_df = means_df[['awc', 'ksat', 'clay', 'sand', 'area_sq_m']]  # drop extra columns.
     means_xr = means_df.to_xarray()
@@ -234,7 +234,7 @@ def get_landfire(fields, desc, debug=False, selector='FID'):
                               scale=30)
 
     if debug:
-        debug = means.filterMetadata('FID', 'equals', 1789).getInfo()
+        debug = means.filterMetadata(selector, 'equals', 1789).getInfo()
 
     task = ee.batch.Export.table.toCloudStorage(
         means,

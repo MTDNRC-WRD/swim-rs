@@ -4,6 +4,7 @@ import sys
 import ee
 import pandas as pd
 import geopandas as gpd
+from tqdm import tqdm
 
 from data_extraction.ee.ee_utils import landsat_masked, is_authorized
 
@@ -324,13 +325,15 @@ def clustered_sample_ndvi_direct(feature_coll, dest_dir, debug=False, mask_type=
 
 
 def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
-                                   start_yr=2004, end_yr=2023, feature_id='FID', drops=None):
+                                   start_yr=2004, end_yr=2024, feature_id='FID', drops=None):
     """ Process GEE SEEBOP ndvi data and return as pd df.
 
     Combined behavior of clustered_sample_ndvi and list_and_copy_gcs_bucket """
+    print('ndvi_{} {}-{}:'.format(mask_type, start_yr, end_yr))
+
     feature_coll = ee.FeatureCollection(feature_coll)
 
-    s, e = '1987-01-01', '2021-12-31'
+    s, e = '1987-01-01', '2024-12-31'
     irr_coll = ee.ImageCollection(IRR)
     coll = irr_coll.filterDate(s, e).select('classification')
     remap = coll.map(lambda img: img.lt(1))
@@ -338,7 +341,7 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
 
     dfs = []
 
-    for year in range(start_yr, end_yr + 1):
+    for year in tqdm(range(start_yr, end_yr + 1), total=end_yr + 1 - start_yr):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
                                   '{}-12-31'.format(year)).select('classification').mosaic()
@@ -399,7 +402,7 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
             'fileFormat': 'PANDAS_DATAFRAME'
         })
 
-        print(desc)
+        # print(desc)
         # Drop all columns that are not FID or a landsat image.
         data_df.index = data_df[feature_id]
         if drops:

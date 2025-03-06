@@ -17,6 +17,8 @@ IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 
 ETF = 'projects/usgs-gee-nhm-ssebop/assets/ssebop/landsat/c02'
 
+NEW_ETF = 'OpenET/SSEBOP/CONUS/GRIDMET/MONTHLY/v2_0'
+
 EC_POINTS = 'users/dgketchum/fields/flux'
 
 STATES = ['AZ', 'CA', 'CO', 'ID', 'MT', 'NM', 'NV', 'OR', 'UT', 'WA', 'WY']
@@ -336,11 +338,170 @@ def clustered_sample_etf_direct(feature_coll, dest_dir, debug=False, mask_type='
         data_df.to_csv(f)
 
 
+def clustered_sample_etf_direct_1_ext(feature_coll, debug=False, mask_type='irr',
+                                      start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
+    """ Process GEE SEEBOP etf data and return as pd df.
+
+    Combined behavior of clustered_sample_etf and list_and_copy_gcs_bucket"""
+    print('etf_{} {}-{}:'.format(mask_type, start_yr, end_yr))
+
+    feature_coll = ee.FeatureCollection(feature_coll)
+
+    s, e = '1987-01-01', '2024-12-31'  # why these dates? (extended through 2024)
+    irr_coll = ee.ImageCollection(IRR)
+    coll = irr_coll.filterDate(s, e).select('classification')
+    remap = coll.map(lambda img: img.lt(1))
+    irr_min_yr_mask = remap.sum().gte(5)
+
+    dfs = []
+    new_end_yr = None
+    if end_yr > 2022:
+        new_end_yr = end_yr
+        end_yr = 2022
+    for year in tqdm(range(start_yr, end_yr+1), total=end_yr+1 - start_yr):
+
+        irr = irr_coll.filterDate('{}-01-01'.format(year),
+                                  '{}-12-31'.format(year)).select('classification').mosaic()
+        irr_mask = irr_min_yr_mask.updateMask(irr.lt(1))
+
+        # desc = 'etf_{}_{}'.format(mask_type, year)
+
+        # # Check that file has not already been created.
+        # f = os.path.join(dest_dir, '{}.csv'.format(desc))
+        # if os.path.exists(f):
+        #     print(desc, 'exists, skipping')
+        #     continue
+
+        coll = ee.ImageCollection(ETF).filterDate('{}-01-01'.format(year), '{}-12-31'.format(year))
+        coll = coll.filterBounds(feature_coll)
+        scenes = coll.aggregate_histogram('system:index').getInfo()
+
+        first, bands = True, None
+        selectors = [feature_id]
+
+        for img_id in scenes:
+
+            # if img_id != 'lt05_036029_20000623':
+            #     continue
+
+            splt = img_id.split('_')
+            _name = '_'.join(splt[-3:])
+
+            selectors.append(_name)
+
+            full_path = '{}/{}'.format(ETF, img_id)
+            etf_img = ee.Image(full_path).rename(_name)  # fixed slash
+            etf_img = etf_img.divide(10000)
+
+            if mask_type == 'no_mask':
+                etf_img = etf_img.clip(feature_coll.geometry())
+            elif mask_type == 'irr':
+                etf_img = etf_img.clip(feature_coll.geometry()).mask(irr_mask)
+            elif mask_type == 'inv_irr':
+                etf_img = etf_img.clip(feature_coll.geometry()).mask(irr.gt(0))
+
+            if first:
+                bands = etf_img
+                first = False
+            else:
+                bands = bands.addBands([etf_img])
+
+            if debug:
+                point = ee.Geometry.Point([-107.188225, 44.9011])
+                data = etf_img.sample(point, 30).getInfo()
+                print(data['features'])
+
+        # TODO extract pixel count to filter data
+        data = bands.reduceRegions(collection=feature_coll,
+                                   reducer=ee.Reducer.mean(),
+                                   scale=30)
+
+        data_df = ee.data.computeFeatures({
+            'expression': data,
+            'fileFormat': 'PANDAS_DATAFRAME'
+        })
+
+        # print(desc)
+        # Drop all columns that are not FID or a landsat image.
+        data_df.index = data_df[feature_id]
+        if drops:
+            drops.append('geo')
+            data_df.drop(columns=drops, inplace=True, errors='ignore')
+        # print(data_df.head())
+        # data_df.to_csv(f)
+        dfs.append(data_df)
+    if new_end_yr:
+        for year in tqdm(range(2023, new_end_yr + 1), total=new_end_yr + 1 - 2023):
+            irr = irr_coll.filterDate('{}-01-01'.format(year),
+                                      '{}-12-31'.format(year)).select('classification').mosaic()
+            irr_mask = irr_min_yr_mask.updateMask(irr.lt(1))
+
+            coll = ee.ImageCollection(NEW_ETF).filterDate('{}-01-01'.format(year), '{}-12-31'.format(year))
+            coll = coll.filterBounds(feature_coll)
+            scenes = coll.aggregate_histogram('system:index').getInfo()
+
+            first, bands = True, None
+            selectors = [feature_id]
+
+            for img_id in scenes:
+
+                splt = img_id.split('_')
+                _name = '_'.join(splt[-3:])
+
+                selectors.append(_name)
+
+                full_path = '{}/{}'.format(NEW_ETF, img_id)
+                etf_img = ee.Image(full_path).rename(_name)  # fixed slash
+                etf_img = etf_img.divide(10000)
+
+                if mask_type == 'no_mask':
+                    etf_img = etf_img.clip(feature_coll.geometry())
+                elif mask_type == 'irr':
+                    etf_img = etf_img.clip(feature_coll.geometry()).mask(irr_mask)
+                elif mask_type == 'inv_irr':
+                    etf_img = etf_img.clip(feature_coll.geometry()).mask(irr.gt(0))
+
+                if first:
+                    bands = etf_img
+                    first = False
+                else:
+                    bands = bands.addBands([etf_img])
+
+                if debug:
+                    point = ee.Geometry.Point([-107.188225, 44.9011])
+                    data = etf_img.sample(point, 30).getInfo()
+                    print(data['features'])
+
+            # TODO extract pixel count to filter data
+            data = bands.reduceRegions(collection=feature_coll,
+                                       reducer=ee.Reducer.mean(),
+                                       scale=30)
+
+            data_df = ee.data.computeFeatures({
+                'expression': data,
+                'fileFormat': 'PANDAS_DATAFRAME'
+            })
+
+            # print(desc)
+            # Drop all columns that are not FID or a landsat image.
+            data_df.index = data_df[feature_id]
+            if drops:
+                drops.append('geo')
+                data_df.drop(columns=drops, inplace=True, errors='ignore')
+            # print(data_df.head())
+            # data_df.to_csv(f)
+            dfs.append(data_df)
+    all_yrs = pd.concat(dfs, axis=1)
+    return all_yrs
+
+
 def clustered_sample_etf_direct_1(feature_coll, debug=False, mask_type='irr',
                                   start_yr=2000, end_yr=2024, feature_id='FID', drops=None):
     """ Process GEE SEEBOP etf data and return as pd df.
 
     Combined behavior of clustered_sample_etf and list_and_copy_gcs_bucket"""
+    print('etf_{} {}-{}:'.format(mask_type, start_yr, end_yr))
+
     feature_coll = ee.FeatureCollection(feature_coll)
 
     s, e = '1987-01-01', '2021-12-31'
@@ -350,8 +511,7 @@ def clustered_sample_etf_direct_1(feature_coll, debug=False, mask_type='irr',
     irr_min_yr_mask = remap.sum().gte(5)
 
     dfs = []
-    print('etf_{} {}-{}:'.format(mask_type, start_yr, end_yr))
-    for year in tqdm(range(start_yr, end_yr + 1), total=end_yr - start_yr):
+    for year in tqdm(range(start_yr, end_yr+1), total=end_yr+1 - start_yr):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
                                   '{}-12-31'.format(year)).select('classification').mosaic()
