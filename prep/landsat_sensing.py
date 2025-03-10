@@ -239,6 +239,121 @@ def clustered_landsat_time_series(in_shp, csv_dir, years, out_csv, out_csv_ct, f
     ctdf.to_csv(out_csv_ct)
 
 
+def clustered_landsat_time_series_nc_oe(image_df, start_yr=2000, end_yr=2024, feature_id='FID', var_name=None):
+    """
+    Intended to process Earth Engine extracts of clustered field data. See e.g., ndvi_export.clustered_field_ndvi()
+    to generate such data. The output of this function should be the same format and structure as that from
+    landsat_time_series_image() and landsat_time_series_station().
+    """
+    # adf, ctdf, first = None, None, True
+
+    dt_index = pd.date_range('{}-01-01'.format(start_yr), '{}-12-31'.format(end_yr), freq='D')
+
+    # try:
+    #     f = [os.path.join(csv_dir, x) for x in os.listdir(csv_dir) if
+    #          x.endswith('.csv') and '_{}'.format(yr) in x][0]
+    # except IndexError as e:
+    #     print(e, yr)
+    #     continue
+
+    # field = pd.read_csv(f)
+    field = image_df
+    # field.index = field[feature_id]
+    # cols = [c for c in field.columns if len(c.split('_')) == 3]
+    # f_idx = field.columns
+    # f_idx = [pd.to_datetime(i) for i in f_idx]
+    # field = pd.DataFrame(columns=field.index, data=field.values.T, index=f_idx)
+    duplicates = field[field.index.duplicated(keep=False)]
+    if not duplicates.empty:
+        field = field.resample('D').max()
+    field = field.sort_index()
+
+    # field = field[['043_000128']]
+
+    field[field.values == 0.00] = np.nan
+
+    # for both NDVI and ETf, values in agriculture and the vegetated land surface generally,
+    # should not go below about 0.01
+    # captures of these low values are likely small pixel samples on SLC OFF Landsat 7 or
+    # on bad polygons that include water or some other land cover we don't want to use
+    # see e.g., https://code.earthengine.google.com/5ea8bc8c6134845a8c0c81a4cdb99fc0
+    # TODO: examine these thresholds, prob better to extract pixel count to filter data
+
+    # removing erroneously high values? - no... this doesn't.
+    # Do these steps remove values near the highs?
+
+    diff_back = field.diff().values
+    field = pd.DataFrame(index=field.index, columns=field.columns,
+                         data=np.where(diff_back < -0.1, np.nan, field.values))
+
+    diff_for = field.shift(periods=2).diff()
+    diff_for = diff_for.shift(periods=-3).values
+    field = pd.DataFrame(index=field.index, columns=field.columns,
+                         data=np.where(diff_for > 0.1, np.nan, field.values))
+
+    # # Allows for different thresholds for different variables.
+    # if 'etf' in csv_dir:
+    #     field[field.values < 0.2] = np.nan
+    #
+    # if 'ndvi' in csv_dir:
+    #     field[field.values < 0.2] = np.nan
+
+    field[field.values < 0.2] = np.nan
+
+    ct = ~pd.isna(field)
+    # print()
+    # print(ct, ct.sum())
+    # print()
+
+    df = field.copy()
+    df = df.astype(float).interpolate()
+    df = df.reindex(dt_index)
+
+    # ct = ~pd.isna(df)
+    # print()
+    # print(ct, ct.sum())
+    # print()
+
+    df = df.interpolate().bfill()
+    df = df.interpolate().ffill()
+
+    ct = ct.reindex(dt_index)
+    ct = ct.fillna(0)
+    # print(ct.max())
+    # ct = ct.astype(int)
+    ct = ct.astype(bool)
+
+    adf = df.copy()
+    ctdf = ct.copy()
+
+    # print(adf)
+    # format dfs
+    adf = adf.melt(
+        var_name="FID",
+        value_name=var_name,
+        ignore_index=False
+    )
+    adf.index = adf.index.set_names('date')
+    adf = adf.set_index('FID', append=True)
+
+    ctdf = ctdf.melt(
+        var_name="FID",
+        value_name="{}_ct".format(var_name),
+        ignore_index=False
+    )
+    ctdf.index = ctdf.index.set_names('date')
+    ctdf = ctdf.set_index('FID', append=True)
+
+    # print()
+    # print(adf)
+    # print(ctdf)
+
+    axr = adf.to_xarray()
+    ctxr = ctdf.to_xarray()
+
+    return axr, ctxr
+
+
 def clustered_landsat_time_series_nc(image_df, start_yr=2000, end_yr=2024, feature_id='FID', var_name=None):
     """
     Intended to process Earth Engine extracts of clustered field data. See e.g., ndvi_export.clustered_field_ndvi()

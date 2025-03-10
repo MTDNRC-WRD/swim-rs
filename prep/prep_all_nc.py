@@ -24,6 +24,7 @@ from data_extraction.ee.ee_utils import is_authorized
 from data_extraction.gridmet.gridmet import air_pressure, actual_vapor_pressure
 from data_extraction.ee.ee_props import get_irrigation_direct_nc, get_ssurgo_direct_nc
 from prep.landsat_sensing import clustered_landsat_time_series_nc, detect_cuttings_nc
+from prep.landsat_sensing import clustered_landsat_time_series_nc_oe
 
 import psutil
 TRACK_MEM = False  # this doesn't seem to be very useful.
@@ -431,32 +432,34 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
             # Also, since data is not on GEE, ETF will be insensitive to irrigated fraction of field.
             for mask_type in types_:
                 for sensing_param in sensing_params:
-                    # This bit is slow.
                     if sensing_param == 'etf':
-                        # Do something with OpenET stuff
-                        imgs = clustered_sample_etf_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
-                                                             end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                        # Work with OpenET concatenated csv file.
+                        # fast
+                        print("etf")
+                        imgs_oe = pd.read_csv(os.path.join(root, "swim", "ssebop_etof_uy10.csv"))
+                        imgs_oe['time'] = [pd.to_datetime(i) for i in imgs_oe['time']]
+                        imgs_oe = imgs_oe.pivot(columns='FID', index='time', values='etof')
+                        ts, count = clustered_landsat_time_series_nc_oe(imgs_oe, start_yr=start_yr, end_yr=end_yr,
+                                                                        feature_id=FEATURE_ID,
+                                                                        var_name='{}_{}'.format(sensing_param,
+                                                                                                mask_type))
                     elif sensing_param == 'ndvi':
-                        imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type, start_yr=start_yr,
-                                                              end_yr=end_yr, feature_id=FEATURE_ID, drops=list(gdf.columns))
+                        # slow
+                        imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type,
+                                                              start_yr=start_yr, end_yr=end_yr, feature_id=FEATURE_ID,
+                                                              drops=list(gdf.columns))
+                        # fast
+                        ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
+                                                                     feature_id=FEATURE_ID,
+                                                                     var_name='{}_{}'.format(sensing_param,
+                                                                                             mask_type))
                     else:
-                        imgs = None
-                    # print()
-                    # print(result1)
+                        ts = None
+                        count = None
 
-                    # This bit is fast.
-                    ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
-                                                                 feature_id=FEATURE_ID,
-                                                                 var_name='{}_{}'.format(sensing_param, mask_type))
                     # print()
                     # print(ts)
                     # print(count)
-
-                    # plt.figure()
-                    # for i in range(10):
-                    #     plt.plot(ts.to_dataarray().values[0, :, i])
-                    #     plt.plot(count.to_dataarray().values[0, :, i])
-                    # plt.show()
 
                     rs_xrs.append(ts)
                     rs_xrs.append(count)  # What does count end up being used for?
@@ -569,7 +572,7 @@ if __name__ == '__main__':
     nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
     sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
     prop_nc = os.path.join(root, 'swim', f'{abb}_props.nc')
-    step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing.nc')
+    step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing_oe.nc')
     final = os.path.join(root, 'swim', f'{abb}_input.nc')
 
     sys.path.append(root)
@@ -584,29 +587,29 @@ if __name__ == '__main__':
         ee.Authenticate()  # cannot reach this line?
     ee.Initialize()
 
-    beg_year = 2020
+    beg_year = 2022
     end_year = 2023
 
     # both steps will only run if any out files are not detected.
-    step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
-    step_4(ee_fields, prop_nc, step4, beg_year, end_year)  # is all required data in prop_nc?
+    # step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
+    step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=False)  # is all required data in prop_nc?
 
-    # merging the resulting files
-    start_t = time.time()
-    all_ncs = []
-    # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
-    for file in [gm_nc, sno_nc, prop_nc, step4]:
-        all_ncs.append(xarray.open_dataset(file))
-    all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
-    print()
-    print(all_input)
-    all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?
-    print()
-    print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast.
-
-    all_end = time.time()
-    print()
-    print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
+    # # merging the resulting files
+    # start_t = time.time()
+    # all_ncs = []
+    # # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
+    # for file in [gm_nc, sno_nc, prop_nc, step4]:
+    #     all_ncs.append(xarray.open_dataset(file))
+    # all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
+    # print()
+    # print(all_input)
+    # all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?
+    # print()
+    # print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast.
+    #
+    # all_end = time.time()
+    # print()
+    # print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
 
     # # ------------------------------------
     # # Take this stuff out to a "run_all" file or something.
