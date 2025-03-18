@@ -201,7 +201,8 @@ def get_ssurgo_direct_nc(fields, debug=False, selector='FID'):
 
     means = img.reduceRegions(collection=plots,
                               reducer=ee.Reducer.mean(),
-                              scale=30)
+                              scale=30,
+                              tileScale=8)
 
     if debug:
         debug = means.filterMetadata(selector, 'equals', 1789).getInfo()
@@ -213,7 +214,18 @@ def get_ssurgo_direct_nc(fields, debug=False, selector='FID'):
     })
 
     means_df.index = means_df[selector]
-    means_df['area_sq_m'] = means_df['acres'] * 4046.86  # save area
+    if 'acres' in means_df.columns:
+        means_df['area_sq_m'] = means_df['acres'] * 4046.86  # save area - why was this in one run, and not another?
+    else:
+        # compute area
+        def compute_area(feature):
+            """Extracts image band values for pixel-point intersection."""
+            return feature.set({'area': feature.area()})
+        area = ee.data.computeFeatures({
+            'expression': plots.map(compute_area),
+            'fileFormat': 'PANDAS_DATAFRAME'
+        })
+        means_df['area_sq_m'] = area['area']
     means_df = means_df[['awc', 'ksat', 'clay', 'sand', 'area_sq_m']]  # drop extra columns.
     means_xr = means_df.to_xarray()
 

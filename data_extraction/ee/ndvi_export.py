@@ -329,7 +329,7 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
     """ Process GEE SEEBOP ndvi data and return as pd df.
 
     Combined behavior of clustered_sample_ndvi and list_and_copy_gcs_bucket """
-    print('ndvi_{} {}-{}:'.format(mask_type, start_yr, end_yr))
+    # print('ndvi_{} {}-{}:'.format(mask_type, start_yr, end_yr))
 
     feature_coll = ee.FeatureCollection(feature_coll)
 
@@ -341,7 +341,8 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
 
     dfs = []
 
-    for year in tqdm(range(start_yr, end_yr + 1), total=end_yr + 1 - start_yr):
+    # for year in tqdm(range(start_yr, end_yr + 1), total=end_yr + 1 - start_yr):
+    for year in range(start_yr, end_yr + 1):
 
         irr = irr_coll.filterDate('{}-01-01'.format(year),
                                   '{}-12-31'.format(year)).select('classification').mosaic()
@@ -395,7 +396,8 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
         # TODO extract pixel count to filter data
         data = bands.reduceRegions(collection=feature_coll,
                                    reducer=ee.Reducer.mean(),
-                                   scale=30)
+                                   scale=30,
+                                   tileScale=8)  # I don't think this is helping me much?
 
         data_df = ee.data.computeFeatures({
             'expression': data,

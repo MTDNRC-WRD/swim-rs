@@ -20,6 +20,7 @@ from chmdata.thredds import GridMet, BBox
 
 from data_extraction.ee.etf_export import clustered_sample_etf_direct_1
 from data_extraction.ee.ndvi_export import clustered_sample_ndvi_direct_1
+from data_extraction.ee.snodas_export import sample_snodas_swe_direct_nc
 from data_extraction.ee.ee_utils import is_authorized
 from data_extraction.gridmet.gridmet import air_pressure, actual_vapor_pressure
 from data_extraction.ee.ee_props import get_irrigation_direct_nc, get_ssurgo_direct_nc
@@ -28,6 +29,8 @@ from prep.landsat_sensing import clustered_landsat_time_series_nc_oe
 
 import psutil
 TRACK_MEM = False  # this doesn't seem to be very useful.
+
+BAD_GROUPS = [14, 15]
 
 
 def get_process_memory():
@@ -80,7 +83,7 @@ def step_1():
 IRR = 'projects/ee-dgketchum/assets/IrrMapper/IrrMapperComp'
 ETF = 'projects/usgs-gee-nhm-ssebop/assets/ssebop/landsat/c02'
 # We must specify which column in the shapefile represents the field's unique ID, in this case it is 'fid'
-FEATURE_ID = 'FID'
+FEATURE_ID = 'fid'
 
 # # Step 3
 CLIMATE_COLS = {
@@ -156,7 +159,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
 
     start_time = time.time()
     if os.path.exists(gm_out):
-        print('1/6 Gridmet: {} exists, skipping'.format(gm_out))
+        print('1/5 and 2/5 Gridmet: {} exists, skipping'.format(gm_out))
         print()
         # extracting coordinates and data for corrections below
         ds = xarray.open_dataset(gm_out)
@@ -203,7 +206,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
             ds[i].attrs.update(temp_attr)
 
         # print()
-        print("1/6 Gridmet: {:.0f} seconds".format(time.time() - start_time))
+        print("1/5 Gridmet: {:.0f} seconds".format(time.time() - start_time))
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
@@ -243,7 +246,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
             for point in tqdm(etdf[FEATURE_ID].unique(), total=len(etdf[FEATURE_ID].unique())):
                 for month in range(1, 13):
                     corr_factor = gridmet_factors[month - 1][num]
-                    mask = (etdf['month'] == month) & (etdf[FEATURE_ID] == point)  # the longer fid shouldn't be slowing it down TEN TIMES, right?!
+                    mask = (etdf['month'] == month) & (etdf[FEATURE_ID] == point)
                     etdf.loc[mask, 'factor'] = corr_factor
                 num += 1
             etdf[corr] = etdf[etvar] * etdf['factor']
@@ -252,7 +255,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
             ds[corr] = xarray.Variable(['date', FEATURE_ID], etdf[corr].to_xarray(), {'units': 'mm'})
             # ds[corr] = etdf[corr].to_xarray()  # this seems to work just fine...
 
-        print("2/6 ET corrections: {:.0f} seconds".format(time.time() - start_time))
+        print("2/5 ET corrections: {:.0f} seconds".format(time.time() - start_time))
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
@@ -264,11 +267,12 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
     # On my laptop: "pynldas2.exceptions.NLDASServiceError: NLDAS2 web service returned the following error:"
     # And no error is given.
     if os.path.exists(nldas_out):
-        print('3/6 NlDAS: {} exists, skipping'.format(nldas_out))
+        print('3/5 NlDAS: {} exists, skipping'.format(nldas_out))
         print()
     else:
         # # Getting NLDAS precip - something before the for loop is very slow.
         print("  Begin NLDAS fetching:")
+        # why did this take 30 seconds earlier, and 1 second now? (For uy10) Did it get cached somewhere?
         start_time = time.time()
         # gridmet is utc-6, US/Central, NLDAS is UTC-0
         # shifting NLDAS to UTC-6 is the most straightforward alignment
@@ -276,7 +280,8 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         e = pd.to_datetime(end_dts) + timedelta(days=2)
         temp = centroids.index
         centroids.index = np.arange(len(centroids))
-        nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='grib')  # pd df, 11s
+        nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='netcdf')  # pd df, 97s
+        # nldas grib is deprecated, and will not work for data after 8/2/2024; netcdf is a lot slower. :(
         print("  NLDAS raw data fetched. ({:.0f} seconds)".format(time.time() - start_time))
         centroids.index = temp  # Revert back to fid so it doesn't screw anything up later.
         # I don't know how to check that this preserves order...
@@ -317,7 +322,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         nldas = nldas.assign_coords({'date': ds['date'], FEATURE_ID: ds[FEATURE_ID]})
 
         # print()
-        print("3/6 NLDAS: {:.0f} seconds".format(time.time() - start_time))  # 4 hours.
+        print("3/5 NLDAS: {:.0f} seconds".format(time.time() - start_time))  # 4 hours.
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
@@ -325,73 +330,100 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         nldas.to_netcdf(nldas_out, engine="netcdf4")
         print("  NLDAS netcdf successfully saved. ({:.0f} seconds)".format(time.time() - start_time))
 
-        # ds = ds.merge(nldas)  # does this work with an empty ds? Did this take half an hour?
-        # print()
-        # print(ds)
-
     # SNODAS - fetch data by calendar year, not individual dates.
     if os.path.exists(snodas_out):
-        print('4/6 SNODAS: "{}" exists, skipping'.format(snodas_out))
+        print('4/5 SNODAS: "{}" exists, skipping'.format(snodas_out))
         print()
     else:
         print("  Begin SNODAS fetching:")
         start_time = time.time()
-        snow_yrs = []
-        no_yrs = []
-        for y in tqdm(range(start, end+1), total=end+1-start):
-            snow_file = os.path.join(main_dir, "snodas/netcdf2/{}WGS84MT.nc".format(y))
-            if os.path.exists(snow_file):  # Only retrieve data that has been saved and formatted correctly.
-                snow_yr = xarray.open_dataset(snow_file)
-                # Extract field locations
-                snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
-                snow_yr = snow_yr.drop_vars(['crs', 'Band2', 'Band3', 'Band4', 'Band5', 'Band6', 'Band7', 'Band8'])
-                snow_yr = snow_yr.rename({'time': 'date'})
-                snow_yrs.append(snow_yr)
-            else:
-                no_yrs.append(y)
-        snow = xarray.concat(snow_yrs, "date")
-        snow = snow.rename({'Band1': 'swe_m'})
-        # Mess with file so it can be saved as a netcdf.
-        snow = snow.swap_dims({"geometry": "fid"})
-        snow = snow.reset_coords("geometry", drop=True)  # Get rid of geometry index
 
-        # print()
-        # print(snow)
-        # print()
-        if no_yrs:
-            print("  The following years do not have available SNODAS data, "
-                  "and were not included in the resulting file: {}".format(no_yrs))
-        print("4/6 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
+        imgs = []
+        for i in tqdm(range(40), total=40):
+            save = f'F:/BOR_UYWS_2025/swim/groups_of_50/snodas/uy_all_swe_group_{i}.csv'
+            # print(save)
+            if not os.path.exists(save):  # do processing
+                # print(f"{i}/197:")
+                # print(i)
+                # split into groups of 10 to see if they actually run! - some of them do. :/
+                # I never switched it to the smaller fields?!
+                field_grp = f'projects/ee-hehaugen/assets/park_tiny/group_{i}'
+                sample_snodas_swe_direct_nc(field_grp, save, start_yr=start, end_yr=end, feature_id=FEATURE_ID)
+            img = pd.read_csv(save, index_col='fid')
+            imgs.append(img)
+        imgs = pd.concat(imgs)  # does merging 40 files work?
+        imgs = imgs.drop(columns=['group'])
+        print(imgs)
+        # If not, merge manually after everything has been processed.
+        snow = imgs.to_xarray()
+        print(snow)
+
+        print("4/5 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+        # snow.to_netcdf(snodas_out, engine="netcdf4")
 
-        snow.to_netcdf(snodas_out, engine="netcdf4")
-        # ds = ds.merge(snow)  # What about the Sept-May thing?
-        # print()
-        # print(ds)
+    # else:
+    #     print("  Begin SNODAS fetching:")
+    #     start_time = time.time()
+    #     snow_yrs = []
+    #     no_yrs = []
+    #     for y in tqdm(range(start, end+1), total=end+1-start):  # very fast.
+    #         snow_file = os.path.join(main_dir, "snodas/netcdf2/{}WGS84MT.nc".format(y))
+    #         if os.path.exists(snow_file):  # Only retrieve data that has been saved and formatted correctly.
+    #             snow_yr_out = f"F:/BOR_UYWS_2025/swim/uy_all_snodas_{y}.nc"
+    #             if os.path.exists(snow_yr_out):
+    #                 snow_yr = xarray.open_dataset(snow_yr_out)
+    #                 snow_yrs.append(snow_yr)
+    #             else:
+    #                 snow_yr = xarray.open_dataset(snow_file)
+    #                 # Extract field locations
+    #                 snow_yr = snow_yr.xvec.extract_points(centroids, x_coords="lon", y_coords="lat", index=True)
+    #                 snow_yr = snow_yr.drop_vars(['crs', 'Band2', 'Band3', 'Band4', 'Band5', 'Band6', 'Band7', 'Band8'])
+    #                 snow_yr = snow_yr.rename({'time': 'date'})
+    #                 snow_yr = snow_yr.rename({'Band1': 'swe_m'})
+    #                 # Mess with file so it can be saved as a netcdf.
+    #                 snow_yr = snow_yr.swap_dims({"geometry": "fid"})
+    #                 snow_yr = snow_yr.reset_coords("geometry", drop=True)  # Get rid of geometry index
+    #                 print(snow_yr)
+    #                 snow_yrs.append(snow_yr)
+    #                 print("saving: ")
+    #                 snow_yr.to_netcdf(snow_yr_out, engine='netcdf4')
+    #                 # how long does this take?
+    #         else:
+    #             no_yrs.append(y)
+    #     snow = xarray.concat(snow_yrs, "date")
+    #     # should these operations be done before concatenating?
+    #
+    #     # print()
+    #     # print(snow)
+    #     # print()
+    #     if no_yrs:
+    #         print("  The following years do not have available SNODAS data, "
+    #               "and were not included in the resulting file: {}".format(no_yrs))
+    #     print("4/5 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
+    #     if TRACK_MEM:
+    #         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    #
+    #     snow.to_netcdf(snodas_out, engine="netcdf4")
+    #     # ds = ds.merge(snow)  # What about the Sept-May thing?
+    #     # print()
+    #     # print(ds)
 
-    # Soil and irrigation properties
-    start_time = time.time()
-    irr = get_irrigation_direct_nc(fields, debug=False, selector=FEATURE_ID)
-    ssurgo = get_ssurgo_direct_nc(fields, debug=False, selector=FEATURE_ID)
-    props = irr.merge(ssurgo)
-    # print(props)
-
-    print("5/6 soil and irrigation properties: {:.0f} seconds".format(time.time() - start_time))  # 1-ish seconds
-    if TRACK_MEM:
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
-
-    start_time = time.time()
-    props.to_netcdf(prop_out, engine="netcdf4")
-    # ds = ds.merge(props)
-    # print()
-    # print(ds)
-
-    # ds.to_netcdf(out_file)
-    print()
-    print("  Saving props netcdf: {:.0f} seconds".format(time.time() - start_time))
-    if TRACK_MEM:
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    if os.path.exists(prop_out):
+        print('5/5 soil and irrigation properties: {} exists, skipping'.format(prop_out))
+        print()
+    else:
+        # Soil and irrigation properties
+        start_time = time.time()
+        irr = get_irrigation_direct_nc(fields, debug=False, selector=FEATURE_ID)
+        ssurgo = get_ssurgo_direct_nc(fields, debug=False, selector=FEATURE_ID)
+        props = irr.merge(ssurgo)
+        # print(props)
+        props.to_netcdf(prop_out, engine="netcdf4")
+        print("5/5 soil and irrigation properties: {:.0f} seconds".format(time.time() - start_time))  # 1-ish seconds
+        if TRACK_MEM:
+            print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
     print("Total Step 3 processing time: {:.0f} seconds".format(time.time() - all_3_start))
 
@@ -436,18 +468,65 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
                         # Work with OpenET concatenated csv file.
                         # fast
                         print("etf")
-                        imgs_oe = pd.read_csv(os.path.join(root, "swim", "ssebop_etof_uy10.csv"))
+                        imgs_oe = pd.read_csv(os.path.join(root, "swim", "uy_all_ssebop_etof.csv"))
                         imgs_oe['time'] = [pd.to_datetime(i) for i in imgs_oe['time']]
-                        imgs_oe = imgs_oe.pivot(columns='FID', index='time', values='etof')
+                        imgs_oe = imgs_oe.pivot(columns=FEATURE_ID, index='time', values='etof')
                         ts, count = clustered_landsat_time_series_nc_oe(imgs_oe, start_yr=start_yr, end_yr=end_yr,
                                                                         feature_id=FEATURE_ID,
                                                                         var_name='{}_{}'.format(sensing_param,
                                                                                                 mask_type))
+                    # TODO: remove hardcoding here
+                    # Lots of intermediate saving so that this might actually finish on time.
+                    # It was going fast earlier, why is it slow again?
                     elif sensing_param == 'ndvi':
                         # slow
-                        imgs = clustered_sample_ndvi_direct_1(fields, debug=False, mask_type=mask_type,
-                                                              start_yr=start_yr, end_yr=end_yr, feature_id=FEATURE_ID,
-                                                              drops=list(gdf.columns))
+                        save_big = f'F:/BOR_UYWS_2025/swim/uy_all_ndvi_{mask_type}.csv'
+                        if os.path.exists(save_big):
+                            imgs = pd.read_csv(save_big, index_col=FEATURE_ID)
+                        else:
+                            imgs = []
+                            for i in tqdm(range(40), total=40):
+                                if i in BAD_GROUPS:
+                                    for let in ['A', 'B']:  # further cut in half.
+                                        save = f'F:/BOR_UYWS_2025/swim/groups_of_50/ndvi_{mask_type}/uy_all_ndvi_{mask_type}_group_{i}{let}.csv'
+                                        # print(save)
+                                        if os.path.exists(save):
+                                            img = pd.read_csv(save, index_col=FEATURE_ID)
+                                            # print(img)
+                                        else:
+                                            # split into groups of 50 to see if they actually run! - some of them do. :/
+                                            field_grp = f'projects/ee-hehaugen/assets/group_{i}{let}'
+                                            img = clustered_sample_ndvi_direct_1(field_grp, debug=False,
+                                                                                 mask_type=mask_type,
+                                                                                 start_yr=start_yr, end_yr=end_yr,
+                                                                                 feature_id=FEATURE_ID,
+                                                                                 drops=list(gdf.columns))
+                                            img.to_csv(save)
+                                        # print(img)
+                                        imgs.append(img)
+                                else:
+                                    save = f'F:/BOR_UYWS_2025/swim/groups_of_50/ndvi_{mask_type}/uy_all_ndvi_{mask_type}_group_{i}.csv'
+                                    # print(save)
+                                    if os.path.exists(save):
+                                        img = pd.read_csv(save, index_col=FEATURE_ID)
+                                        # print(img)
+                                    else:
+                                        # split into groups of 50 to see if they actually run! - some of them do. :/
+                                        field_grp = f'projects/ee-hehaugen/assets/park_tiny/group_{i}'
+                                        img = clustered_sample_ndvi_direct_1(field_grp, debug=False, mask_type=mask_type,
+                                                                             start_yr=start_yr, end_yr=end_yr,
+                                                                             feature_id=FEATURE_ID, drops=list(gdf.columns))
+                                        img.to_csv(save)
+                                    # print(img)
+                                    imgs.append(img)
+                            # print(imgs)
+                            # can pull processing things from openet_export?
+                            imgs = pd.concat(imgs)  # does merging 40 files work? Not right now, come back to this.
+                            # It works after all of the data has been downloaded as csvs, I think.
+                            imgs = imgs.drop(columns=['group'])
+                            # If not, merge manually after everything has been processed.
+                            # print(imgs)
+                            imgs.to_csv()
                         # fast
                         ts, count = clustered_landsat_time_series_nc(imgs, start_yr=start_yr, end_yr=end_yr,
                                                                      feature_id=FEATURE_ID,
@@ -505,6 +584,7 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
         if ndvi_irr:
+            print("Running detect_cuttings")
             # Finally, we use both the irrigation and NDVI data to run an analysis to infer
             # simple agricultural information and get an estimate of the potential irrigation dates.
             irr = props_out
@@ -543,11 +623,11 @@ if __name__ == '__main__':
     if TRACK_MEM:
         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
 
-    # shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
-    shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
+    shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
+    # shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
     ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
-    # shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
-    shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
+    shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
+    # shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
     gdf = gpd.read_file(shapefile_path)
     gdf.index = gdf[FEATURE_ID]
     gdf = gdf.to_crs('EPSG:5071')
@@ -566,8 +646,8 @@ if __name__ == '__main__':
     # centroids = gdf_4326.geometry.centroid  # Does it like this one better? Nope...
 
     # output file locations
-    # abb = 'uy_all'
-    abb = 'uy10'
+    abb = 'uy_all'
+    # abb = 'uy10'
     gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
     nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
     sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
@@ -584,21 +664,23 @@ if __name__ == '__main__':
     all_start = time.time()
 
     if not is_authorized():
-        ee.Authenticate()  # cannot reach this line?
+        ee.Authenticate()
     ee.Initialize()
 
-    beg_year = 2022
-    end_year = 2023
+    # Inclusive
+    beg_year = 2020
+    end_year = 2024  # can I not get 2024 data from NLDAS? - not as GRIB, that's deprecated as of 8/2/2024
 
     # both steps will only run if any out files are not detected.
-    # step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
-    step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=False)  # is all required data in prop_nc?
+    step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
+    # step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=True)
 
     # # merging the resulting files
     # start_t = time.time()
     # all_ncs = []
     # # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
-    # for file in [gm_nc, sno_nc, prop_nc, step4]:
+    # # Should I save snow years separaetly, and then combine with merge? Only 5 files this time.
+    # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
     #     all_ncs.append(xarray.open_dataset(file))
     # all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
     # print()

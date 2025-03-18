@@ -633,7 +633,7 @@ def detect_cuttings_nc(landsat, irr_csv, irr_threshold=0.1, select=None):
     for field in lst.FID.values:
         for yr in years:
             # Why do I need to loop over years? Can I do the whole time series at once?
-            irrigated = irr.irr.sel(FID=field, year=yr) > irr_threshold
+            irrigated = irr.irr.sel(fid=field, year=yr) > irr_threshold
             if not irrigated:  # keep everything as zeros
                 continue
             # otherwise, calculate irrigation days.
@@ -644,10 +644,10 @@ def detect_cuttings_nc(landsat, irr_csv, irr_threshold=0.1, select=None):
             df['ndvi_irr'] = df['ndvi_irr'].rolling(window=10, center=True).mean()
             df['diff'] = df['ndvi_irr'].diff()
 
-            nan_ct = np.count_nonzero(np.isnan(df.values))
-            if nan_ct > 200:
-                print('{}: {} has {}/{} nan'.format(field, yr, nan_ct, df.values.size))
-                continue
+            # nan_ct = np.count_nonzero(np.isnan(df.values))
+            # if nan_ct > 200:
+            #     print('{}: {} has {}/{} nan'.format(field, yr, nan_ct, df.values.size))
+            #     continue
 
             local_min_indices = df[(df['diff'] > 0) & (df['diff'].shift(1) < 0)].index
 

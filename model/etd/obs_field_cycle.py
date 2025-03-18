@@ -221,6 +221,7 @@ def field_day_loop_nc_1(config, plots, debug_flag=False, params=None, save_out=N
         # Eventually let compute_crop_et() write directly to output df
 
         if debug_flag:
+            # TODO: should tracker log the tuned parameters? Where do those live?
             for i, fid in enumerate(targets):
                 tracker.crop_df[fid][step_dt] = {}
                 sample_idx = 0, i
@@ -321,6 +322,7 @@ def field_day_loop_nc_1(config, plots, debug_flag=False, params=None, save_out=N
             tracker.crop_df[fid].index = tracker.crop_df[fid].index.rename('date')  # rename index (should be after concat)
         out_ds_list = [tracker.crop_df[fid].to_xarray() for fid in targets]  # convert to xarray
         out_ds = xarray.concat(out_ds_list, pd.Index(tracker.crop_df.keys(), name='FID'))  # create out 1 ds w/ 2 dims
+
         if save_out:
             out_ds.to_netcdf(save_out, engine='netcdf4')
         return out_ds
