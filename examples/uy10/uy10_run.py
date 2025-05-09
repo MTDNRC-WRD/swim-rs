@@ -510,8 +510,8 @@ if __name__ == '__main__':
     # Let's time this run
     start_time = time.time()
     save_file = 'C:/Users/CND571/PycharmProjects/swim-rs1/examples/uy10/uy10_swim_output_uncalibrated.nc'
-    # fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=debug, save_out=None)
-    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=debug, save_out=save_file)
+    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=debug, save_out=None)
+    # fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=debug, save_out=save_file)
     # Debug flag appears to save 6 seconds at the moment?
     end_time = time.time()
     print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))

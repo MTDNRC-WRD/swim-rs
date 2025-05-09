@@ -67,7 +67,7 @@ def sample_snodas_swe(feature_coll, bucket=None, debug=False, check_dir=None, ov
 
 
 def sample_snodas_swe_direct_nc(feature_coll, dest_path, debug=False, overwrite=False,
-                                start_yr=2004, end_yr=2023, feature_id='FID'):
+                                start_yr=2004, end_yr=2023, feature_id='FID', drops=None):
     feature_coll = ee.FeatureCollection(feature_coll)
     snodas = ee.ImageCollection('projects/earthengine-legacy/assets/projects/climate-engine/snodas/daily')
 
@@ -124,15 +124,18 @@ def sample_snodas_swe_direct_nc(feature_coll, dest_path, debug=False, overwrite=
             })
 
             # print(desc)
+            data_df.index = data_df[feature_id]
+            data_df = data_df.drop(columns=[feature_id])
+            # Drop all columns that are not FID or a landsat image.
+            if drops:
+                drops.append('geo')
+                drops.append('group')
+                data_df = data_df.drop(columns=drops, errors='ignore')
+            # print(data_df.head())
             dfs.append(data_df)
-            # # Might need to drop all columns that are not FID or a landsat image.
-            # data_df.index = data_df[feature_id]
-            # if drops:
-            #     drops.append('geo')
-            #     data_df.drop(columns=drops, inplace=True, errors='ignore')
-            # # print(data_df.head())
-    dfs = pd.concat(dfs)
+    dfs = pd.concat(dfs, axis=1)
     dfs.to_csv(dest_path)
+    # dfs.to_csv(dest_path, index=False)
 
 
 def sample_snodas_swe_direct(feature_coll, dest_dir, debug=False, overwrite=False,

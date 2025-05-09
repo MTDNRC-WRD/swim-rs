@@ -340,28 +340,38 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
 
         imgs = []
         for i in tqdm(range(40), total=40):
-            save = f'F:/BOR_UYWS_2025/swim/groups_of_50/snodas/uy_all_swe_group_{i}.csv'
+            save = f'F:/BOR_UYWS_2025/swim/groups_of_50/snodas1/uy_all_swe_group_{i}.csv'
             # print(save)
             if not os.path.exists(save):  # do processing
-                # print(f"{i}/197:")
-                # print(i)
-                # split into groups of 10 to see if they actually run! - some of them do. :/
-                # I never switched it to the smaller fields?!
                 field_grp = f'projects/ee-hehaugen/assets/park_tiny/group_{i}'
-                sample_snodas_swe_direct_nc(field_grp, save, start_yr=start, end_yr=end, feature_id=FEATURE_ID)
+                sample_snodas_swe_direct_nc(field_grp, save, start_yr=start, end_yr=end, feature_id=FEATURE_ID,
+                                            drops=list(gdf.columns))
             img = pd.read_csv(save, index_col='fid')
+            # print(img)
             imgs.append(img)
-        imgs = pd.concat(imgs)  # does merging 40 files work?
-        imgs = imgs.drop(columns=['group'])
-        print(imgs)
-        # If not, merge manually after everything has been processed.
-        snow = imgs.to_xarray()
+        snow = pd.concat(imgs)
+        # imgs = imgs.drop(columns=['group'])
+        # print(snow)
+
+        # format dfs
+        snow = snow.melt(
+            var_name="date",
+            value_name="swe",
+            ignore_index=False
+        )
+        # print(snow.index)
+        snow['date'] = pd.to_datetime(snow['date'])
+        snow = snow.set_index('date', append=True)
+        # print(snow)
+
+        snow = snow.to_xarray()
+        # flatten pandas to get the snow timeseries.
         print(snow)
+        snow.to_netcdf(snodas_out, engine="netcdf4")
 
         print("4/5 SNODAS: {:.0f} seconds".format(time.time() - start_time))  # 10.27 seconds for 19 years!
         if TRACK_MEM:
             print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
-        # snow.to_netcdf(snodas_out, engine="netcdf4")
 
     # else:
     #     print("  Begin SNODAS fetching:")
@@ -405,7 +415,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
     #     if TRACK_MEM:
     #         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
     #
-    #     snow.to_netcdf(snodas_out, engine="netcdf4")
+    #     snow.to_netcdf(snodas_out, engine="netcdf4")  # TODO: Look at a different engine?
     #     # ds = ds.merge(snow)  # What about the Sept-May thing?
     #     # print()
     #     # print(ds)
@@ -446,7 +456,6 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
     else:
         types_ = ['irr']
     sensing_params = ['ndvi', 'etf']
-    # strt_yr, end_yr = 2004, 2023
 
     ndvi_irr = None
 
@@ -476,8 +485,7 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
                                                                         var_name='{}_{}'.format(sensing_param,
                                                                                                 mask_type))
                     # TODO: remove hardcoding here
-                    # Lots of intermediate saving so that this might actually finish on time.
-                    # It was going fast earlier, why is it slow again?
+                    # Lots of intermediate saving.
                     elif sensing_param == 'ndvi':
                         # slow
                         save_big = f'F:/BOR_UYWS_2025/swim/uy_all_ndvi_{mask_type}.csv'
@@ -494,7 +502,6 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
                                             img = pd.read_csv(save, index_col=FEATURE_ID)
                                             # print(img)
                                         else:
-                                            # split into groups of 50 to see if they actually run! - some of them do. :/
                                             field_grp = f'projects/ee-hehaugen/assets/group_{i}{let}'
                                             img = clustered_sample_ndvi_direct_1(field_grp, debug=False,
                                                                                  mask_type=mask_type,
@@ -507,24 +514,21 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
                                 else:
                                     save = f'F:/BOR_UYWS_2025/swim/groups_of_50/ndvi_{mask_type}/uy_all_ndvi_{mask_type}_group_{i}.csv'
                                     # print(save)
-                                    if os.path.exists(save):
-                                        img = pd.read_csv(save, index_col=FEATURE_ID)
-                                        # print(img)
-                                    else:
-                                        # split into groups of 50 to see if they actually run! - some of them do. :/
+                                    if not os.path.exists(save):
+                                        # split into groups of 50 to see if they actually run! - most of them do.
                                         field_grp = f'projects/ee-hehaugen/assets/park_tiny/group_{i}'
-                                        img = clustered_sample_ndvi_direct_1(field_grp, debug=False, mask_type=mask_type,
-                                                                             start_yr=start_yr, end_yr=end_yr,
-                                                                             feature_id=FEATURE_ID, drops=list(gdf.columns))
-                                        img.to_csv(save)
+                                        new_img = clustered_sample_ndvi_direct_1(field_grp, debug=False,
+                                                                                 mask_type=mask_type,
+                                                                                 start_yr=start_yr, end_yr=end_yr,
+                                                                                 feature_id=FEATURE_ID,
+                                                                                 drops=list(gdf.columns))
+                                        new_img.to_csv(save)
                                     # print(img)
+                                    img = pd.read_csv(save, index_col=FEATURE_ID)  # load all files
                                     imgs.append(img)
                             # print(imgs)
-                            # can pull processing things from openet_export?
-                            imgs = pd.concat(imgs)  # does merging 40 files work? Not right now, come back to this.
-                            # It works after all of the data has been downloaded as csvs, I think.
+                            imgs = pd.concat(imgs)
                             imgs = imgs.drop(columns=['group'])
-                            # If not, merge manually after everything has been processed.
                             # print(imgs)
                             imgs.to_csv()
                         # fast
@@ -598,8 +602,9 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
         # This will be a single, large file to hold all the NDVI and ETf data.
         start_time = time.time()
         rs = xarray.merge(rs_xrs)
+        rs = rs.rename({'FID': 'fid'})
         # print()
-        # print(rs)
+        print(rs)
         rs.to_netcdf(out_file)
         print("Saving EE exports: {:.2f}".format(time.time() - start_time))  # very fast
         if TRACK_MEM:
@@ -614,117 +619,122 @@ if __name__ == '__main__':
         main_dir = 'F:'  # on local computer
     root = os.path.join(main_dir, 'BOR_UYWS_2025')
 
-    # Tracking memory to get a better handle on what's going on.
-    memory = psutil.virtual_memory()
-    # print(f"Total memory: {memory.total / (1024 ** 3):.2f} GB")
-    # print(f"Available memory: {memory.available / (1024 ** 3):.2f} GB")
-    # print(f"Memory percentage used: {memory.percent}%")
-    print(f"Memory available: {memory.available / (1024 ** 2):.2f} MB ({100 - memory.percent:.2f}%)")
-    if TRACK_MEM:
-        print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
-
-    shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
-    # shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
-    ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
-    shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
-    # shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
-    gdf = gpd.read_file(shapefile_path)
-    gdf.index = gdf[FEATURE_ID]
-    gdf = gdf.to_crs('EPSG:5071')
-    # gdf['fid_1'] = [int(i[-4:]) for i in gdf.index]  # looks good!
-    # gdf['fid_2'] = [i[-4:] for i in gdf.index]
-    # gdf['fid_3'] = [i for i in gdf.index]
-    # print(gdf)
-    # step_1()  # Visualizing the study area
-
-    # Need bounds for steps 3 and 4
-    # Convert to correct coordinate system. Need bounds and field centroids.
-    gdf_4326 = gdf.to_crs("EPSG:4326")
-    bnds = gdf_4326.total_bounds
-    gdf['centroids'] = gdf.geometry.centroid  # doesn't like this? Well, we'll keep moving forward.
-    centroids = gdf['centroids'].to_crs('EPSG:4326')
-    # centroids = gdf_4326.geometry.centroid  # Does it like this one better? Nope...
-
-    # output file locations
-    abb = 'uy_all'
-    # abb = 'uy10'
-    gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
-    nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
-    sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
-    prop_nc = os.path.join(root, 'swim', f'{abb}_props.nc')
-    step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing_oe.nc')
-    final = os.path.join(root, 'swim', f'{abb}_input.nc')
-
-    sys.path.append(root)
-    sys.path.insert(0, os.path.abspath('../..'))
-    sys.setrecursionlimit(5000)  # What does this do?
-
-    print()
-
-    all_start = time.time()
-
-    if not is_authorized():
-        ee.Authenticate()
-    ee.Initialize()
-
-    # Inclusive
-    beg_year = 2020
-    end_year = 2024  # can I not get 2024 data from NLDAS? - not as GRIB, that's deprecated as of 8/2/2024
-
-    # both steps will only run if any out files are not detected.
-    step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
-    # step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=True)
-
+    # # Tracking memory to get a better handle on what's going on.
+    # memory = psutil.virtual_memory()
+    # # print(f"Total memory: {memory.total / (1024 ** 3):.2f} GB")
+    # # print(f"Available memory: {memory.available / (1024 ** 3):.2f} GB")
+    # # print(f"Memory percentage used: {memory.percent}%")
+    # print(f"Memory available: {memory.available / (1024 ** 2):.2f} MB ({100 - memory.percent:.2f}%)")
+    # if TRACK_MEM:
+    #     print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
+    #
+    # shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
+    # # shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
+    # ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
+    # shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
+    # # shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
+    # gdf = gpd.read_file(shapefile_path)
+    # gdf.index = gdf[FEATURE_ID]
+    # gdf = gdf.to_crs('EPSG:5071')
+    # # gdf['fid_1'] = [int(i[-4:]) for i in gdf.index]  # looks good!
+    # # gdf['fid_2'] = [i[-4:] for i in gdf.index]
+    # # gdf['fid_3'] = [i for i in gdf.index]
+    # # print(gdf)
+    # # step_1()  # Visualizing the study area
+    #
+    # # Need bounds for steps 3 and 4
+    # # Convert to correct coordinate system. Need bounds and field centroids.
+    # gdf_4326 = gdf.to_crs("EPSG:4326")
+    # bnds = gdf_4326.total_bounds
+    # gdf['centroids'] = gdf.geometry.centroid  # doesn't like this? Well, we'll keep moving forward.
+    # centroids = gdf['centroids'].to_crs('EPSG:4326')
+    # # centroids = gdf_4326.geometry.centroid  # Does it like this one better? Nope...
+    #
+    # # output file locations
+    # abb = 'uy_all'
+    # # abb = 'uy10'
+    # gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
+    # nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
+    # sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
+    # prop_nc = os.path.join(root, 'swim', f'{abb}_props.nc')
+    # step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing_oe.nc')
+    # final = os.path.join(root, 'swim', f'{abb}_input.nc')
+    #
+    # sys.path.append(root)
+    # sys.path.insert(0, os.path.abspath('../..'))
+    # sys.setrecursionlimit(5000)  # What does this do?
+    #
+    # print()
+    #
+    # all_start = time.time()
+    #
+    # # if not is_authorized():
+    # #     ee.Authenticate()
+    # # ee.Initialize()
+    #
+    # # Inclusive
+    # beg_year = 2020
+    # end_year = 2024  # can I not get 2024 data from NLDAS? - not as GRIB, that's deprecated as of 8/2/2024
+    #
+    # # both steps will only run if any out files are not detected.
+    # # step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
+    # # step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=True)
+    #
     # # merging the resulting files
     # start_t = time.time()
     # all_ncs = []
     # # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
-    # # Should I save snow years separaetly, and then combine with merge? Only 5 files this time.
+    # # Should I save snow years separately, and then combine with merge? Only 5 files this time.
     # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
+    #     print(file)
+    #     mergh = xarray.open_dataset(file)
+    #     print(mergh.indexes)
     #     all_ncs.append(xarray.open_dataset(file))
     # all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
     # print()
     # print(all_input)
     # all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?
     # print()
-    # print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast.
+    # print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast. 30 seconds for ~2000 fields?
     #
-    # all_end = time.time()
-    # print()
-    # print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
+    # # all_end = time.time()
+    # # print()
+    # # print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
 
-    # # ------------------------------------
-    # # Take this stuff out to a "run_all" file or something.
-    # # Now actually run the model. (Step 5)
-    # from swim.config import ProjectConfig
-    # from swim.input import SamplePlots
-    #
-    # # Our project workspace will replace the "{project_root}" in the paths in the config file,
-    # # several directories will be placed there. Let's use the top level directory of this tutorial
+    # ------------------------------------
+    # Take this stuff out to a "run_all" file or something.
+    # Now actually run the model. (Step 5)
+    from swim.config import ProjectConfig
+    from swim.input import SamplePlots
+
+    # Our project workspace will replace the "{project_root}" in the paths in the config file,
+    # several directories will be placed there. Let's use the top level directory of this tutorial
     # project_ws = os.path.join(root, 'examples', 'uy10')
-    # print(f'Setting project root to {project_ws}')
-    #
+    project_ws = 'F:/BOR_UYWS_2025/swim'
+    print(f'Setting project root to {project_ws}')
+
     # config_file = os.path.join(root, 'examples', 'uy10', 'uy10_config.toml')
-    # config = ProjectConfig()
-    # config.read_config(config_file, project_ws)
-    #
-    # fields = SamplePlots()
-    # fields.initialize_plot_data_nc(config)  # loads
-    # var = list(fields.input.keys())
-    # for i in range(len(var)):
-    #     print(i, var[i])
-    # print(fields.input)
-    #
-    # from model.etd import obs_field_cycle
-    #
-    # # Let's time this run - slow! :(
-    # start_time = time.time()
-    # fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=True)
-    # end_time = time.time()
-    # print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
-    #
-    # # print(fields.output)
-    #
+    config_file = os.path.join(project_ws, 'uy_all_config.toml')
+    config = ProjectConfig()
+    config.read_config(config_file, project_ws)
+
+    fields = SamplePlots()
+    fields.initialize_plot_data_nc(config)  # loads
+    var = list(fields.input.keys())
+    for i in range(len(var)):
+        print(i, var[i])
+    print(fields.input)
+
+    from model.etd import obs_field_cycle
+
+    # Let's time this run - slow! :( (Only when using debug flag) First run takes 30 seconds, later runs take 5?
+    start_time = time.time()
+    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=False)
+    end_time = time.time()
+    print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
+
+    print(fields.output)
+
     # # Save the results for a given field and plot them.
     # field = 354
     # out_df = fields.output[field].copy()

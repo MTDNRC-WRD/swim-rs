@@ -27,11 +27,11 @@ def compute_field_et(config, et_cell, foo, foo_day, debug_flag=False):
     foo.fc = np.minimum(foo.fc, 0.99)
     if np.any(np.isnan(foo.fc)):
         mask = np.isnan(foo.fc).flatten()
-        nan_ids = np.array(et_cell.input['FID'])[mask]
+        nan_ids = np.array(et_cell.input[config.field_index])[mask]
         for nan_id in nan_ids:
             if not nan_id in foo.isnan:
                 foo.isnan.append(nan_id)
-                print('Found nan in foo.fc: {}'.format(nan_ids))
+                # print('Found nan in foo.fc: {}'.format(nan_ids))  # TODO: determine if this can be suppressed safely
 
     # Estimate infiltrating precipitation
     # Yesterday's infiltration

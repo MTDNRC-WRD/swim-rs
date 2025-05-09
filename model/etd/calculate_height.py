@@ -8,6 +8,8 @@ import logging
 
 import numpy as np
 
+from numba import jit
+
 
 def calculate_height(foo):
 
@@ -33,3 +35,33 @@ def calculate_height(foo):
     )
 
     foo.height = np.minimum(np.maximum(foo.height_initial, np.maximum(height_prev, foo.height)), foo.height_max)
+
+
+# This is not good, do not use it.
+@jit
+def calculate_height_1(height_prev, kc_bas, kc_min, height_initial, kc_bas_mid, height_max):
+
+    # height_prev = foo.height
+
+    # <----- previous (2000) and with error (Kcbmin vs Kcmin)
+    # height = height_min + (kc_bas - kcb_min) / (kc_bas_mid - kc_min) * (height_max - height_min)
+    # kc_bas_mid is maximum kc_bas found in kc_bas table read into program
+
+    # Following conditionals added 12/26/07 to prevent any error
+    # if foo.kc_bas > foo.kc_min and foo.kc_bas_mid > foo.kc_min:
+    #     foo.height = (
+    #         foo.height_initial + (foo.kc_bas - foo.kc_min) / (foo.kc_bas_mid - foo.kc_min) *
+    #         (foo.height_max - foo.height_initial))
+    # else:
+    #     foo.height = foo.height_initial
+    # foo.height = min(max(foo.height_initial, max(height_prev, foo.height)), foo.height_max)
+
+    height = np.where(
+        kc_bas > kc_min,
+        height_initial + (kc_bas - kc_min) / (kc_bas_mid - kc_min) * (height_max - height_initial),
+        height_initial
+    )
+
+    height = np.minimum(np.maximum(height_initial, np.maximum(height_prev, height)), height_max)
+
+    return height
