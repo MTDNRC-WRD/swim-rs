@@ -217,7 +217,7 @@ def openet_get_fields_export_1(fields, start, end, attrs='FID', et_too=False, sh
         ],
         "reducer": "mean",
         "model": "Ensemble",
-        "variable": "ETof",  # Available variable depends on model.
+        "variable": "ET",  # Available variable depends on model.
         "reference_et": "gridMET",
         "units": "in"
     }
@@ -249,7 +249,7 @@ def openet_get_fields_export_1(fields, start, end, attrs='FID', et_too=False, sh
         print(resp.json())
 
 
-def track(track_id, api_key='C:/Users/CND571/Documents/Haugen_Montana_API.txt'):
+def track(track_id, api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
     # set your API key before making the request
     with open(api_key, 'r') as f:
         api_key = f.readline()
@@ -268,6 +268,8 @@ def track(track_id, api_key='C:/Users/CND571/Documents/Haugen_Montana_API.txt'):
     )
 
     print(resp.json())
+
+
 
 
 def upload(filepath, api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
@@ -308,12 +310,140 @@ def check(api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
     print(resp.json())
 
 
+def export_stack(fields, start='2020-01-01', end='2024-12-31', api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+    """ Export GeoTIFFs of OpenET data to Google Drive. Use GEE asset as study area.
+
+    Export is limited to 31 time steps per request. Each time step is a sepearate file.
+    """
+    # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
+    header = {"Authorization": api_key}
+
+    # endpoint arguments
+    args = {
+        "date_range": [
+            start,
+            end
+        ],
+        "interval": "monthly",
+        "asset_id": fields,
+        "model": "Ensemble",
+        "variable": "ET",
+        "reference_et": "gridMET",
+        "units": "mm",
+        "encrypt": False
+    }
+
+    # query the api
+    resp = requests.post(
+        headers=header,
+        json=args,
+        url="https://openet-api.org/raster/export/stack"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/stack"
+    )
+
+    print(resp.json())
+
+
+def export_multipolygon(fields, start='2020-01-01', end='2024-12-31',
+                        api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+    """ """
+    # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
+    header = {"Authorization": api_key}
+
+    # endpoint arguments
+    args = {
+        "date_range": [
+            start,
+            end
+        ],
+        "interval": "daily",
+        "asset_id": fields,
+        "attributes": ["Field"],
+        "model": "Ensemble",
+        "variable": "ET",
+        "reducer": "mean",
+        "reference_et": "gridMET",
+        "units": "in",
+        "encrypt": False
+    }
+
+    # query the api
+    resp = requests.post(
+        headers=header,
+        json=args,
+        url="https://openet-api.org/raster/export/multipolygon"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/multipolygon"
+    )
+
+    print(resp.json())
+
+
+def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+    """ Export GeoTIFFs of OpenET data to Google Drive. Use rectangle as study area.
+
+    Export is limited to 31 time steps per request. Each time step is a sepearate file.
+    """
+    # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
+    header = {"Authorization": api_key}
+
+    # endpoint arguments
+    args = {
+        "date_range": [
+            start,
+            end
+        ],
+        "interval": "monthly",
+        "geometry": [
+            -110.5004,
+            45.8960,
+            -110.5004,
+            45.9402,
+            -110.4259,
+            45.9402,
+            -110.4259,
+            45.8960
+        ],
+        "model": "Ensemble",
+        "variable": "ET",
+        "reference_et": "gridMET",
+        "units": "in",
+        "encrypt": False
+    }
+
+    # query the api
+    resp = requests.post(
+        headers=header,
+        json=args,
+        url="https://openet-api.org/raster/export/stack"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/stack"
+    )
+
+    print(resp.json())
+
+
 if __name__ == '__main__':
-    # Get the data from Openet to Google Drive
+    ee_fields = 'projects/ee-hehaugen/assets/GoldCreekFields1'
+    export_multipolygon(ee_fields, start='2024-01-01', end='2024-12-31')
+    export_multipolygon(ee_fields, start='2025-01-01', end='2025-09-03')
+
+    # ee_fields = 'projects/ee-hehaugen/assets/UpperYellowstoneBasin'
+    # export_stack(ee_fields, start='2020-01-01', end='2022-06-30')
+    # export_stack(ee_fields, start='2022-07-01', end='2024-12-31')
+
+    # export_stack_rect(start='2024-06-01', end='2024-10-31')
+    # export_stack_rect(start='2025-04-01', end='2025-05-31')
+
+    # # Get the data from Openet to Google Drive
     # shp = '067_Park'  # all 1968 fields from 01/30/24 version of SID
-    # shp = 'mt_sid_uy10'  # smaller set of fields for testing
+    # # shp = 'mt_sid_uy10'  # smaller set of fields for testing
     # ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp)
-    # openet_get_fields_export(ee_fields, "2020-01-01", "2024-12-31")  # This works! Now how to do more fields?
+    # openet_get_fields_export_1(ee_fields, "2020-01-01", "2024-12-31", attrs='fid')
 
     # gee_asset_1 = 'projects/ee-hehaugen/assets/067_Park_A'
     # gee_asset_2 = 'projects/ee-hehaugen/assets/067_Park_B'

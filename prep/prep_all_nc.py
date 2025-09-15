@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import sys
 import ee
 import xarray
-import xvec  # this is used, just tacked on to xarray stuff. Needs to be imported.
+import xvec  # this is used, just tacked on to xarray stuff. Does need to be imported.
 import pandas as pd
 from datetime import timedelta
 import pytz
@@ -218,7 +218,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         etdf['date'] = [i[0] for i in etdf.index]  # slow at the beginning, but I think it's worth it.
         etdf['month'] = [i[0].month for i in etdf.index]
         # Convert fid to int if not already
-        if isinstance(etdf.index[0][1], str):  # str in fid will slow things daramatically in 'for point' loop below.
+        if isinstance(etdf.index[0][1], str):  # str in fid will slow things dramatically in 'for point' loop below.
             etdf[FEATURE_ID] = [int(i[1][-4:]) for i in etdf.index]  # save as int, assuming SID formating.
         else:
             etdf[FEATURE_ID] = [i[1] for i in etdf.index]  # take value as-is.
@@ -251,7 +251,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
                 num += 1
             etdf[corr] = etdf[etvar] * etdf['factor']
             # print(etdf[corr])
-            # Do I need additional attributes?
+            # Additional attributes needed?
             ds[corr] = xarray.Variable(['date', FEATURE_ID], etdf[corr].to_xarray(), {'units': 'mm'})
             # ds[corr] = etdf[corr].to_xarray()  # this seems to work just fine...
 
@@ -272,7 +272,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
     else:
         # # Getting NLDAS precip - something before the for loop is very slow.
         print("  Begin NLDAS fetching:")
-        # why did this take 30 seconds earlier, and 1 second now? (For uy10) Did it get cached somewhere?
+        # Did some data from the request get cached? For a small smaple, this took 30 seconds, then 1 second later.
         start_time = time.time()
         # gridmet is utc-6, US/Central, NLDAS is UTC-0
         # shifting NLDAS to UTC-6 is the most straightforward alignment
@@ -281,7 +281,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         temp = centroids.index
         centroids.index = np.arange(len(centroids))
         nldas = nld.get_bycoords(centroids, start_date=s, end_date=e, variables=['prcp'], source='netcdf')  # pd df, 97s
-        # nldas grib is deprecated, and will not work for data after 8/2/2024; netcdf is a lot slower. :(
+        # nldas grib is deprecated, and will not work for data after 8/2/2024; netcdf is a lot slower.
         print("  NLDAS raw data fetched. ({:.0f} seconds)".format(time.time() - start_time))
         centroids.index = temp  # Revert back to fid so it doesn't screw anything up later.
         # I don't know how to check that this preserves order...
@@ -296,7 +296,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         # rename columns
         hourly_ppt = hourly_ppt.droplevel(level='variable', axis=1)
         hourly_ppt = hourly_ppt.rename(columns=dict(zip(range(24), hr_cols)), level='date')
-        # hourly_ppt.columns = hourly_ppt.columns.set_names('variable', level=1)  # I think this also works?
+        # hourly_ppt.columns = hourly_ppt.columns.set_names('variable', level=1)  # this also works
         hourly_ppt.columns = hourly_ppt.columns.set_names([FEATURE_ID, 'variable'])
         hourly_ppt.index = hourly_ppt.index.rename('date')
         print("  NLDAS data reformatted. ({:.0f} seconds)".format(time.time() - start_time))
@@ -307,12 +307,12 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
         for i in hourly_ppt.columns.levels[0]:  # this is very fast.
             nan_ct = np.sum(np.isnan(hourly_ppt[i].values), axis=0)
             if sum(nan_ct) > 100:
-                # raise ValueError('Too many NaN in NLDAS data')  # Highest number is approaching 2% of data... Fine?
-                print('{}: Too many NaN in NLDAS data ({} NaN)'.format(i, sum(nan_ct)))
+                raise ValueError('Too many NaN in NLDAS data')  # Highest value is almost 2% of data.
+                # print('{}: Too many NaN in NLDAS data ({} NaN)'.format(i, sum(nan_ct))) # Different threshold needed?
             if np.any(nan_ct):
                 hourly_ppt[i] = hourly_ppt[i].fillna(0.)
             # How to supress "fragmented" warnings below?
-            hourly_ppt[i, 'nld_ppt_d'] = hourly_ppt[i].sum(axis=1)  # Many same entries, there are 2 cells for 10 fields.
+            hourly_ppt[i, 'nld_ppt_d'] = hourly_ppt[i].sum(axis=1)  # Many same entries, ex: 2 cells for 10 fields.
         hourly_ppt = hourly_ppt.stack(level=0)  # moves multiindex column level to the index.
         print("  NLDAS data summed/gapfilled. ({:.0f} seconds)".format(time.time() - start_time))
 
@@ -416,7 +416,7 @@ def step_3(fields, gm_out, nldas_out, snodas_out, prop_out, start=1987, end=2024
     #         print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
     #
     #     snow.to_netcdf(snodas_out, engine="netcdf4")  # TODO: Look at a different engine?
-    #     # ds = ds.merge(snow)  # What about the Sept-May thing?
+    #     # ds = ds.merge(snow)  # What about the Sept-May mask?
     #     # print()
     #     # print(ds)
 
@@ -447,8 +447,7 @@ def step_4(fields, props_out, out_file, start_yr, end_yr, do_inv_irr=True):
 
     # Upload shapefile to GEE on your own
 
-    # Can I change to using bounds, and then use xvec to get the polygon-specific stuff?
-    # That might work, but I was not able to get it going right now. Future problem there.
+    # What about using bounds, then using xvec to get the polygon-specific stuff?
     # Potential problem: might be slower for larger areas with low field density?
 
     if do_inv_irr:
@@ -627,127 +626,127 @@ if __name__ == '__main__':
     # print(f"Memory available: {memory.available / (1024 ** 2):.2f} MB ({100 - memory.percent:.2f}%)")
     # if TRACK_MEM:
     #     print(f"  Current process memory: {get_process_memory() / (1024 ** 2):.2f} MB")
-    #
-    # shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
-    # # shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
-    # ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
-    # shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
-    # # shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
-    # gdf = gpd.read_file(shapefile_path)
-    # gdf.index = gdf[FEATURE_ID]
-    # gdf = gdf.to_crs('EPSG:5071')
-    # # gdf['fid_1'] = [int(i[-4:]) for i in gdf.index]  # looks good!
-    # # gdf['fid_2'] = [i[-4:] for i in gdf.index]
-    # # gdf['fid_3'] = [i for i in gdf.index]
-    # # print(gdf)
-    # # step_1()  # Visualizing the study area
-    #
-    # # Need bounds for steps 3 and 4
-    # # Convert to correct coordinate system. Need bounds and field centroids.
-    # gdf_4326 = gdf.to_crs("EPSG:4326")
-    # bnds = gdf_4326.total_bounds
-    # gdf['centroids'] = gdf.geometry.centroid  # doesn't like this? Well, we'll keep moving forward.
-    # centroids = gdf['centroids'].to_crs('EPSG:4326')
-    # # centroids = gdf_4326.geometry.centroid  # Does it like this one better? Nope...
-    #
-    # # output file locations
-    # abb = 'uy_all'
-    # # abb = 'uy10'
-    # gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
-    # nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
-    # sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
-    # prop_nc = os.path.join(root, 'swim', f'{abb}_props.nc')
-    # step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing_oe.nc')
-    # final = os.path.join(root, 'swim', f'{abb}_input.nc')
-    #
-    # sys.path.append(root)
-    # sys.path.insert(0, os.path.abspath('../..'))
-    # sys.setrecursionlimit(5000)  # What does this do?
-    #
-    # print()
-    #
-    # all_start = time.time()
-    #
-    # # if not is_authorized():
-    # #     ee.Authenticate()
-    # # ee.Initialize()
-    #
-    # # Inclusive
-    # beg_year = 2020
-    # end_year = 2024  # can I not get 2024 data from NLDAS? - not as GRIB, that's deprecated as of 8/2/2024
-    #
-    # # both steps will only run if any out files are not detected.
-    # # step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
-    # # step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=True)
-    #
-    # # merging the resulting files
-    # start_t = time.time()
-    # all_ncs = []
-    # # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
-    # # Should I save snow years separately, and then combine with merge? Only 5 files this time.
+
+    shp_name = '067_Park'  # all 1968 fields from 01/30/24 version of SID
+    # shp_name = 'mt_sid_uy10'  # smaller set of fields for testing.
+    ee_fields = 'projects/ee-hehaugen/assets/{}'.format(shp_name)
+    shapefile_path = os.path.join(root, 'SID_30JAN2024', '{}.shp'.format(shp_name))
+    # shapefile_path = os.path.join(root, '{}.shp'.format(shp_name))
+    gdf = gpd.read_file(shapefile_path)
+    gdf.index = gdf[FEATURE_ID]
+    gdf = gdf.to_crs('EPSG:5071')
+    # gdf['fid_1'] = [int(i[-4:]) for i in gdf.index]
+    # gdf['fid_2'] = [i[-4:] for i in gdf.index]
+    # gdf['fid_3'] = [i for i in gdf.index]
+    # print(gdf)
+    # step_1()  # Visualizing the study area
+
+    # Need bounds for steps 3 and 4
+    # Convert to correct coordinate system. Need bounds and field centroids.
+    gdf_4326 = gdf.to_crs("EPSG:4326")
+    bnds = gdf_4326.total_bounds
+    gdf['centroids'] = gdf.geometry.centroid  # Not good?
+    centroids = gdf['centroids'].to_crs('EPSG:4326')
+    # centroids = gdf_4326.geometry.centroid  # Not good?
+
+    # output file locations
+    abb = 'uy_all'
+    # abb = 'uy10'
+    gm_nc = os.path.join(root, 'swim', f'{abb}_gm_corr.nc')
+    nldas_nc = os.path.join(root, 'swim', f'{abb}_nldas.nc')
+    sno_nc = os.path.join(root, 'swim', f'{abb}_snodas.nc')
+    prop_nc = os.path.join(root, 'swim', f'{abb}_props.nc')
+    step4 = os.path.join(root, 'swim', f'{abb}_remote_sensing_oe.nc')
+    final = os.path.join(root, 'swim', f'{abb}_input.nc')
+
+    sys.path.append(root)
+    sys.path.insert(0, os.path.abspath('../..'))
+    sys.setrecursionlimit(5000)
+
+    print()
+
+    all_start = time.time()
+
+    # if not is_authorized():
+    #     ee.Authenticate()
+    # ee.Initialize()
+
+    # Inclusive
+    beg_year = 2020
+    end_year = 2024  # 2024 data from NLDAS not available as GRIB, deprecated as of 8/2/2024
+
+    # both steps will only run if there is an incomplete set of output files detected.
+    # step_3(ee_fields, gm_nc, nldas_nc, sno_nc, prop_nc, beg_year, end_year)
+    # step_4(ee_fields, prop_nc, step4, beg_year, end_year, do_inv_irr=True)
+
+    # merging the resulting files
+    start_t = time.time()
+    all_ncs = []
     # for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
-    #     print(file)
-    #     mergh = xarray.open_dataset(file)
-    #     print(mergh.indexes)
-    #     all_ncs.append(xarray.open_dataset(file))
-    # all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
+    # Should I save snow years separately, and then combine with merge? Only 5 files this time.
+    for file in [gm_nc, nldas_nc, sno_nc, prop_nc, step4]:
+        print(file)
+        mergh = xarray.open_dataset(file)
+        print(mergh.indexes)
+        all_ncs.append(xarray.open_dataset(file))
+    all_input = xarray.merge(all_ncs)  # causes dt alignment and introduces nans, making dtype=float.
+    print()
+    print(all_input)
+    all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?
+    print()
+    print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast. 30 seconds for ~2000 fields?
+
+    # all_end = time.time()
     # print()
-    # print(all_input)
-    # all_input.to_netcdf(final)  # why is this fast when the gridmet save is so slow?
-    # print()
-    # print("Merging files: {:.2f}".format(time.time() - start_t))  # Fast. 30 seconds for ~2000 fields?
+    # print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
+
+    # # ------------------------------------
+    # # Take this stuff out to a "run_all" file or something.
+    # # Now actually run the model. (Step 5)
+    # from swim.config import ProjectConfig
+    # from swim.input import SamplePlots
     #
-    # # all_end = time.time()
+    # # Our project workspace will replace the "{project_root}" in the paths in the config file,
+    # # several directories will be placed there. Let's use the top level directory of this tutorial
+    # # project_ws = os.path.join(root, 'examples', 'uy10')
+    # project_ws = 'F:/BOR_UYWS_2025/swim'
+    # print(f'Setting project root to {project_ws}')
+    #
+    # # config_file = os.path.join(root, 'examples', 'uy10', 'uy10_config.toml')
+    # config_file = os.path.join(project_ws, 'uy_all_config.toml')
+    # config = ProjectConfig()
+    # config.read_config(config_file, project_ws)
+    #
+    # fields = SamplePlots()
+    # fields.initialize_plot_data_nc(config)  # loads
+    # var = list(fields.input.keys())
+    # for i in range(len(var)):
+    #     print(i, var[i])
+    # print(fields.input)
+    #
+    # from model.etd import obs_field_cycle
+    #
+    # # Let's time this run - slow! (Only when using debug flag) First run takes 30 seconds, later runs take 5?
+    # start_time = time.time()
+    # fields.output = obs_field_cycle.field_day_loop_nc_4(config, fields, debug_flag=False)
+    # end_time = time.time()
+    # print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
+    #
+    # print(fields.output)
+    #
+    # # # Save the results for a given field and plot them.
+    # # field = 354
+    # # out_df = fields.output[field].copy()
+    # #
     # # print()
-    # # print("Total input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
-
-    # ------------------------------------
-    # Take this stuff out to a "run_all" file or something.
-    # Now actually run the model. (Step 5)
-    from swim.config import ProjectConfig
-    from swim.input import SamplePlots
-
-    # Our project workspace will replace the "{project_root}" in the paths in the config file,
-    # several directories will be placed there. Let's use the top level directory of this tutorial
-    # project_ws = os.path.join(root, 'examples', 'uy10')
-    project_ws = 'F:/BOR_UYWS_2025/swim'
-    print(f'Setting project root to {project_ws}')
-
-    # config_file = os.path.join(root, 'examples', 'uy10', 'uy10_config.toml')
-    config_file = os.path.join(project_ws, 'uy_all_config.toml')
-    config = ProjectConfig()
-    config.read_config(config_file, project_ws)
-
-    fields = SamplePlots()
-    fields.initialize_plot_data_nc(config)  # loads
-    var = list(fields.input.keys())
-    for i in range(len(var)):
-        print(i, var[i])
-    print(fields.input)
-
-    from model.etd import obs_field_cycle
-
-    # Let's time this run - slow! :( (Only when using debug flag) First run takes 30 seconds, later runs take 5?
-    start_time = time.time()
-    fields.output = obs_field_cycle.field_day_loop_nc_1(config, fields, debug_flag=False)
-    end_time = time.time()
-    print('\nExecution time: {:.2f} seconds\n'.format(end_time - start_time))
-
-    print(fields.output)
-
-    # # Save the results for a given field and plot them.
-    # field = 354
-    # out_df = fields.output[field].copy()
-    #
-    # print()
-    # print(out_df.head())
-    # print(out_df.columns)
-    #
-    # out_data_loc = os.path.join(root, 'examples', 'uy10', 'combined_output_{}.csv'.format('354'))
-    #
-    # in_df = fields.input_to_dataframe(field)
-    # df = pd.concat([out_df, in_df], axis=1, join='inner', ignore_index=False)
-    # df.to_csv(out_data_loc)
-    # print(df.shape)
+    # # print(out_df.head())
+    # # print(out_df.columns)
+    # #
+    # # out_data_loc = os.path.join(root, 'examples', 'uy10', 'combined_output_{}.csv'.format('354'))
+    # #
+    # # in_df = fields.input_to_dataframe(field)
+    # # df = pd.concat([out_df, in_df], axis=1, join='inner', ignore_index=False)
+    # # df.to_csv(out_data_loc)
+    # # print(df.shape)
 
 # ========================= EOF ====================================================================
