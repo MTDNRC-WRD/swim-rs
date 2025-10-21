@@ -314,6 +314,7 @@ def field_day_loop_nc_5(config, plots, params=None, debug_flag=False, save_out=N
 
 
 # Edited from field_day_loop_nc_3, changing output from ETf to ETa
+# This is the good one. But slow.
 def field_day_loop_nc_4(config, plots, params=None, debug_flag=False, save_out=None) -> np.ndarray | xarray.Dataset:
     """Run SWIM. Main model code for use with netcdf input files.
 
@@ -409,16 +410,16 @@ def field_day_loop_nc_4(config, plots, params=None, debug_flag=False, save_out=N
                                  vals['{}_mm'.format(config.refet_type)])
 
         # Why would refet be different whether or not it's irrigated?
-        foo_day.irr_day = np.array(vals['irr_days']).reshape(1, -1)
+        foo_day.irr_day = np.array(vals['irr_days']).reshape(1, -1).astype(bool)
         foo_day.min_temp = np.array(vals['tmin_c']).reshape(1, -1)
         foo_day.max_temp = np.array(vals['tmax_c']).reshape(1, -1)
         foo_day.temp_avg = (foo_day.min_temp + foo_day.max_temp) / 2.
-        foo_day.srad = np.array(vals['srad_wm2']).reshape(1, -1)
+        foo_day.srad = np.array(vals['srad_wm2']).reshape(1, -1)  # where is this used?
         foo_day.precip = np.array(vals['prcp_mm'])
 
         if np.any(foo_day.precip > 0.):
             hr_ppt = np.array([vals[k] for k in hr_ppt_keys]).reshape(24, size)
-            foo_day.hr_precip = hr_ppt
+            foo_day.hr_precip = hr_ppt  # where is this even used?
 
         foo_day.precip = foo_day.precip.reshape(1, -1)
 
@@ -430,6 +431,17 @@ def field_day_loop_nc_4(config, plots, params=None, debug_flag=False, save_out=N
         obs_kcb_daily.kcb_daily(config, plots, tracker, foo_day)  # It doesn't actually use the first two inputs?
 
         # Calculate Kcb, Ke, ETc
+        # print(foo_day.dt_string)
+        # if foo_day.dt_string == '1992-03-30':
+        #     print(foo_day.irr_day)
+        #     print(tracker.depl_root)
+        #     print(tracker.max_irr_rate)
+        #     # print(tracker.depl_root)
+        #
+        # if foo_day.dt_string == '1992-03-31':
+        #     print(foo_day.irr_day)  # is this the first irrigated day?
+        #     print(tracker.depl_root)
+        #     print(tracker.max_irr_rate)
         compute_field_et.compute_field_et(config, plots, tracker, foo_day,
                                           debug_flag)
 
@@ -526,7 +538,261 @@ def field_day_loop_nc_4(config, plots, params=None, debug_flag=False, save_out=N
             if np.isnan(tracker.swe.any()):
                 raise ValueError('NaN in SWE')
 
-            etf[j, :] = tracker.etc_act
+            etf[j, :] = tracker.etc_act  # ? etc_act vs eta_act? (eta_act is not a thing in tracker.)
+            swe[j, :] = tracker.swe
+
+    if debug_flag:
+        # pass final dataset to calling script
+        tracker.crop_df = {fid: pd.DataFrame().from_dict(tracker.crop_df[fid], orient='index')[OUTPUT_FMT]
+                           for fid in targets}  # turn nested dict to single dict of pd df
+        for fid in tracker.crop_df:
+            tracker.crop_df[fid].index = pd.to_datetime(tracker.crop_df[fid].index)  # turn indices into dt
+            tracker.crop_df[fid].index = tracker.crop_df[fid].index.rename('date')  # rename index (should be after concat)
+        out_ds_list = [tracker.crop_df[fid].to_xarray() for fid in targets]  # convert to xarray
+        out_ds = xarray.concat(out_ds_list, pd.Index(tracker.crop_df.keys(), name=config.field_index))  # create out 1 ds w/ 2 dims
+
+        if save_out:
+            out_ds.to_netcdf(save_out, engine='netcdf4')
+        return out_ds
+
+    else:
+        # if not debug, just return the actual ET and SWE results as ndarray
+        return np.asarray([etf, swe])
+
+
+# Edited from field_day_loop_nc_4, trying to make model run faster by using dicts.
+# Use this one now, much faster.
+def field_day_loop_nc_4_dict(config, plots, params=None, debug_flag=False, save_out=None) -> np.ndarray | xarray.Dataset:
+    """Run SWIM. Main model code for use with netcdf input files.
+
+    This function loops through the daily time series for all fields at the same time.
+
+    Args:
+        config: obj, loaded config file information
+        plots: obj, contains input data
+        debug_flag: bool, optional; if False, return only swe and eta timeseries info as numpy array (default);
+          if True, output all timeseries info as xarray dataset
+        params: dict, optional; if provided, specifies parameters for model - values may be either single numbers
+          (for running one field or same values for all fields), or lists/arrays the length of the number of fields
+          being run. If not provided, DEFAULT parameter values will be used for ndvi_alpha, ndvi_beta, mad, swe_alpha,
+          and swe_beta, and values from plots will be used for aw, rew, and tew.
+        save_out: str, optional; if provided, and debug_flag=True, the filepath where all timeseries information
+          will be saved; else, results will only be stored in memory.
+
+    Returns:
+        If debug_flag==False, return 2xN array of swe and eta timeseries info; If debug_flag==True, return all
+        timeseries as xarray dataset.
+    """
+    #
+    etf, swe = None, None
+    size = plots.input['dims'][config.field_index]
+    # size = len(selected)
+    # tracker.load_soils_nc(plots[selected])  # does this work?
+    tracker = PlotTracker(size)
+    tracker.load_soils_nc_dict(plots)  # supplies aw, rew, tew parameters, and other values.
+
+    # apply calibration parameter updates here
+
+    # Assumes params is a dictionary of values.
+    if params:
+        if isinstance(params['ndvi_alpha'], (int, float)):  # same values for all fields.
+            for k, v in params.items():
+                arr = np.ones((1, size)) * v
+                tracker.__setattr__(k, arr)
+        else:  # unique values for each field. - not sure this works yet.
+            for k, v in params.items():
+                arr = np.reshape(v, (1, -1))
+                tracker.__setattr__(k, arr)
+    else:  # same values for all fields, except aw, rew, tew from load_soils_nc() above.
+        for k, v in DEFAULTS.items():
+            arr = np.ones((1, size)) * v
+            tracker.__setattr__(k, arr)
+
+    targets = plots.input['coords'][config.field_index]['data']
+
+    # Initialize crop data frame
+    time_range = pd.date_range(config.start_dt, config.end_dt, freq='D')
+    if debug_flag:
+        tracker.setup_dataframe(targets)  # creates empty dict of dict with FIDs as keys
+    else:
+        # creating properly-sized arrays for model results.
+        empty = np.zeros((len(time_range), len(targets))) * np.nan
+        etf, swe = empty.copy(), empty.copy()
+
+    tracker.set_kc_max()
+
+    foo_day = DayData()
+    foo_day.sdays = 0
+    foo_day.doy_prev = 0
+    foo_day.irr_status = None
+
+    hr_ppt_keys = ['prcp_hr_{}'.format(str(i).rjust(2, '0')) for i in range(0, 24)]
+    # cols = ['ndvi_irr', 'etf_irr_ct', '{}_mm_corrected'.format(config.refet_type),
+    #         'ndvi_inv_irr', 'etf_inv_irr_ct', '{}_mm'.format(config.refet_type)]
+
+    # looping through days
+    for j, step_dt in enumerate(time_range):
+        # I think this select statement is ruining everything.
+        # vals = plots.input.sel(date=step_dt)  # all data for all fields for that date
+        vals = plots.input['data_vars']  # all data for all fields
+
+        # Track variables for each day
+        # For now, cast all values to native Python types
+        foo_day.sdays += 1
+        dt = pd.to_datetime(step_dt)
+        foo_day.dt_string = dt.strftime('%Y-%m-%d')
+
+        foo_day.year = dt.year
+        foo_day.month = dt.month
+        foo_day.day = dt.day
+        foo_day.doy = dt.dayofyear
+
+        # Check irrigation status on first date and first day of each year.
+        if foo_day.doy == 1 or foo_day.irr_status is None:
+            # find index of year in data
+            yr_idx = np.argwhere(plots.input['coords']['year']['data'] == dt.year)[0][0]
+            # apply index to get irrigated fraction for each field for that year.
+            foo_day.irr_status = vals['irr']['data'][:, yr_idx]
+
+        # Using yearly irr_status as condition for which variable type to store for each field on this day
+        foo_day.ndvi = np.where(foo_day.irr_status, vals['ndvi_irr']['data'][j], vals['ndvi_inv_irr']['data'][j])
+        foo_day.capture = np.where(foo_day.irr_status, vals['ndvi_irr_ct']['data'][j], vals['ndvi_inv_irr_ct']['data'][j])  # why were these etf, and not ndvi?
+        foo_day.refet = np.where(foo_day.irr_status, vals['{}_mm_corrected'.format(config.refet_type)]['data'][j],
+                                 vals['{}_mm'.format(config.refet_type)]['data'][j])
+
+        foo_day.ndvi = foo_day.ndvi.reshape(1, -1)
+        foo_day.capture = foo_day.capture.reshape(1, -1)
+        foo_day.refet = foo_day.refet.reshape(1, -1)
+
+        foo_day.irr_day = vals['irr_days']['data'][j].reshape(1, -1).astype(bool)
+        foo_day.min_temp = vals['tmin_c']['data'][j].reshape(1, -1)
+        foo_day.max_temp = vals['tmax_c']['data'][j].reshape(1, -1)
+        foo_day.temp_avg = (foo_day.min_temp + foo_day.max_temp) / 2.
+        foo_day.srad = vals['srad_wm2']['data'][j].reshape(1, -1)  # where is this used?
+        foo_day.precip = vals['prcp_mm']['data'][j]
+
+        if np.any(foo_day.precip > 0.):
+            hr_ppt = np.array([vals[k]['data'][j] for k in hr_ppt_keys]).reshape(24, size)
+            foo_day.hr_precip = hr_ppt  # where is this even used?
+
+        foo_day.precip = foo_day.precip.reshape(1, -1)
+
+        # Calculate height of vegetation.
+        # Moved up to this point 12/26/07 for use in adj. Kcb and kc_max
+        calculate_height.calculate_height(tracker)
+
+        # Interpolate Kcb and make climate adjustment (for ETo basis)
+        obs_kcb_daily.kcb_daily(config, plots, tracker, foo_day)  # It doesn't actually use the first two inputs?
+
+        # Calculate Kcb, Ke, ETc
+        # print(foo_day.dt_string)
+        # if foo_day.dt_string == '1992-03-30':
+        #     print(foo_day.irr_day)
+        #     print(tracker.depl_root)
+        #     print(tracker.max_irr_rate)
+        #     # print(tracker.depl_root)
+        #
+        # if foo_day.dt_string == '1992-03-31':
+        #     print(foo_day.irr_day)  # is this the first irrigated day?
+        #     print(tracker.depl_root)
+        #     print(tracker.max_irr_rate)
+        compute_field_et.compute_field_et(config, plots, tracker, foo_day,
+                                          debug_flag)
+
+        # Retrieve values from foo_day and write to output data frame
+        # Eventually let compute_crop_et() write directly to output df
+
+        if debug_flag:
+            # TODO: should tracker log the tuned parameters? Where do those live?
+            for i, fid in enumerate(targets):
+                tracker.crop_df[fid][step_dt] = {}
+                sample_idx = 0, i
+                tracker.crop_df[fid][step_dt]['etref'] = foo_day.refet[sample_idx]
+
+                eta_act = tracker.etc_act[sample_idx]
+                tracker.crop_df[fid][step_dt]['capture'] = foo_day.capture[sample_idx]
+                tracker.crop_df[fid][step_dt]['t'] = tracker.t[sample_idx]
+                tracker.crop_df[fid][step_dt]['e'] = tracker.e[sample_idx]
+                tracker.crop_df[fid][step_dt]['kc_act'] = tracker.kc_act[sample_idx]
+                tracker.crop_df[fid][step_dt]['ks'] = tracker.ks[sample_idx]
+                tracker.crop_df[fid][step_dt]['ke'] = tracker.ke[sample_idx]
+
+                # water balance components
+                tracker.crop_df[fid][step_dt]['et_act'] = eta_act
+
+                ppt = foo_day.precip[sample_idx]
+                tracker.crop_df[fid][step_dt]['ppt'] = ppt
+
+                melt = tracker.melt[sample_idx]
+                tracker.crop_df[fid][step_dt]['melt'] = melt
+                rain = tracker.rain[sample_idx]
+                tracker.crop_df[fid][step_dt]['rain'] = rain
+
+                runoff = tracker.sro[sample_idx]
+                tracker.crop_df[fid][step_dt]['runoff'] = runoff
+                dperc = tracker.dperc[sample_idx]
+                tracker.crop_df[fid][step_dt]['dperc'] = dperc
+
+                depl_root = tracker.depl_root[sample_idx]
+                tracker.crop_df[fid][step_dt]['depl_root'] = depl_root
+                depl_root_prev = tracker.depl_root_prev[sample_idx]
+                tracker.crop_df[fid][step_dt]['depl_root_prev'] = depl_root_prev
+
+                daw3 = tracker.daw3[sample_idx]
+                tracker.crop_df[fid][step_dt]['daw3'] = daw3
+                daw3_prev = tracker.daw3_prev[sample_idx]
+                tracker.crop_df[fid][step_dt]['daw3_prev'] = daw3_prev
+                delta_daw3 = daw3 - daw3_prev
+                tracker.crop_df[fid][step_dt]['delta_daw3'] = delta_daw3
+
+                soil_water = tracker.soil_water[sample_idx]
+                tracker.crop_df[fid][step_dt]['soil_water'] = soil_water
+                soil_water_prev = tracker.soil_water_prev[sample_idx]
+                tracker.crop_df[fid][step_dt]['soil_water_prev'] = soil_water_prev
+                delta_soil_water = tracker.delta_soil_water[sample_idx]
+                tracker.crop_df[fid][step_dt]['delta_soil_water'] = delta_soil_water
+
+                depl_ze = tracker.depl_ze[sample_idx]
+                tracker.crop_df[fid][step_dt]['depl_ze'] = depl_ze
+                tracker.crop_df[fid][step_dt]['p_rz'] = tracker.p_rz[sample_idx]
+                tracker.crop_df[fid][step_dt]['p_eft'] = tracker.p_eft[sample_idx]
+                tracker.crop_df[fid][step_dt]['fc'] = tracker.fc[sample_idx]
+                tracker.crop_df[fid][step_dt]['few'] = tracker.few[sample_idx]
+                tracker.crop_df[fid][step_dt]['aw'] = tracker.aw[sample_idx]
+                tracker.crop_df[fid][step_dt]['aw3'] = tracker.aw3[sample_idx]
+                tracker.crop_df[fid][step_dt]['taw'] = tracker.taw[sample_idx]
+                tracker.crop_df[fid][step_dt]['taw3'] = tracker.taw3[sample_idx]
+                tracker.crop_df[fid][step_dt]['irrigation'] = tracker.irr_sim[sample_idx]
+                tracker.crop_df[fid][step_dt]['irr_day'] = foo_day.irr_day[sample_idx]
+                tracker.crop_df[fid][step_dt]['swe'] = tracker.swe[sample_idx]
+                tracker.crop_df[fid][step_dt]['snow_fall'] = tracker.snow_fall[sample_idx]
+                tracker.crop_df[fid][step_dt]['tavg'] = foo_day.temp_avg[sample_idx]
+                tracker.crop_df[fid][step_dt]['tmax'] = foo_day.max_temp[sample_idx]
+                tracker.crop_df[fid][step_dt]['zr'] = tracker.zr[sample_idx]
+                tracker.crop_df[fid][step_dt]['kc_bas'] = tracker.kc_bas[sample_idx]
+                tracker.crop_df[fid][step_dt]['niwr'] = tracker.niwr[sample_idx]
+                tracker.crop_df[fid][step_dt]['et_bas'] = tracker.etc_bas
+                tracker.crop_df[fid][step_dt]['season'] = tracker.in_season
+
+                water_out = eta_act + dperc + runoff
+                water_stored = soil_water - soil_water_prev
+                water_in = melt + rain
+                balance = water_in - water_stored - water_out
+
+                tracker.crop_df[fid][step_dt]['wbal'] = balance
+
+                if abs(balance) > 0.1 and foo_day.year > 2000:
+                    pass
+                    # raise WaterBalanceError('Check November water balance')
+
+        else:
+            if np.isnan(tracker.kc_act.any()):
+                raise ValueError('NaN in Kc_act')
+
+            if np.isnan(tracker.swe.any()):
+                raise ValueError('NaN in SWE')
+
+            etf[j, :] = tracker.etc_act  # ? etc_act vs eta_act? (eta_act is not a thing in tracker.)
             swe[j, :] = tracker.swe
 
     if debug_flag:

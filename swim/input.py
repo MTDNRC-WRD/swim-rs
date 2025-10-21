@@ -27,6 +27,10 @@ class SamplePlots:
         f = config.input_data
         self.input = xarray.open_dataset(f)
 
+    def initialize_plot_data_nc_dict(self, config):
+        f = config.input_data
+        self.input = xarray.open_dataset(f).to_dict(data='array')
+
     def input_to_dataframe(self, feature_id):
 
         # select statement?
