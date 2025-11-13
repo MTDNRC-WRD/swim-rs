@@ -31,7 +31,7 @@ def compute_field_et(config, et_cell, foo, foo_day, debug_flag=False):
         for nan_id in nan_ids:
             if not nan_id in foo.isnan:
                 foo.isnan.append(nan_id)
-                # print('Found nan in foo.fc: {}'.format(nan_ids))  # TODO: determine if this can be suppressed safely
+                print('Found nan in foo.fc: {}'.format(nan_ids))  # TODO: determine if this can be suppressed safely
 
     # Estimate infiltrating precipitation
     # Yesterday's infiltration
@@ -45,7 +45,9 @@ def compute_field_et(config, et_cell, foo, foo_day, debug_flag=False):
         compute_snow.calculate_snow(foo, foo_day)
 
         # runoff.runoff_curve_number(foo, foo_day, debug_flag)
-        runoff.runoff_infiltration_excess(foo, foo_day)
+        # runoff.runoff_infiltration_excess(foo, foo_day)  # This is where hourly precip is used.
+        foo.sro = np.maximum((foo.melt + foo.rain) - foo.ksat, 0)  # daily instead?
+        # Daily would get more infiltration, since it does not account for intensity?
 
         foo.ppt_inf = (foo.melt + foo.rain) - foo.sro
 
