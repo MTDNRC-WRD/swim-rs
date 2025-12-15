@@ -1,9 +1,11 @@
-import os.path
+import os
 
 import numpy as np
 import pandas as pd
 import requests
+import gzip
 
+# I don't know what these files are from anymore.
 FILES = {
     99: {'tracking_id': 'GB7QTW36UASFOYGLP6LFTWTL', 'encrypted': False, 'name': '40fa2', 'destination': 'drive'},
     100: {'tracking_id': 'RTWV2VMUBE6XU6I2UHQRKELU', 'encrypted': False, 'name': 'f70f0', 'destination': 'drive'},
@@ -96,8 +98,16 @@ FILES = {
 }
 
 
+# API_KEY = 'C:/Users/CND571/Documents/OpenET_API.txt'
+# API_KEY = 'C:/Users/CND571/Documents/New_OpenET_API.txt'
+# ENDPOINT = 'general'
+
+API_KEY = 'C:/Users/CND571/Documents/Haugen_Montana_API.txt'
+ENDPOINT = 'montana'
+
+
 def openet_get_fields_export(fields, start, end, attrs='FID', et_too=False, show=False,
-                             api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+                             api_key=API_KEY):
     """ Uses OpenET API multipolygon export endpoint to get etof data given a Google Earth Engine asset.
 
     Files will be exported to user's Google Drive; this is dependent on linking OpenET account to a Google account
@@ -174,7 +184,7 @@ def openet_get_fields_export(fields, start, end, attrs='FID', et_too=False, show
 
 
 def openet_get_fields_export_1(fields, start, end, attrs='FID', et_too=False, show=False,
-                               api_key='C:/Users/CND571/Documents/Haugen_Montana_API.txt'):
+                               api_key=API_KEY):
     """ Uses OpenET API multipolygon export endpoint to get etof data given a Google Earth Engine asset.
 
     Files will be exported to user's Google Drive; this is dependent on linking OpenET account to a Google account
@@ -249,7 +259,7 @@ def openet_get_fields_export_1(fields, start, end, attrs='FID', et_too=False, sh
         print(resp.json())
 
 
-def track(track_id, api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+def track(track_id, api_key=API_KEY):
     # set your API key before making the request
     with open(api_key, 'r') as f:
         api_key = f.readline()
@@ -270,11 +280,41 @@ def track(track_id, api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
     print(resp.json())
 
 
+def storage(api_key=API_KEY):
+    """Retrieves information on all current files exported to OpenET's Google Bucket.
+
+    If your OpenET account is not synced with your personal Google Earth Engine account, all exported data will be
+    stored in a secure private Google Cloud Bucket. The following endpoint allows you to retrieve downloadable links
+    to these files. This endpoint must be called to continue exporting if there are over 100 files which have not
+    been retrieved.
+
+    Once this endpoint has been called, all existing files will be moved to a public bucket with a 24 hour lifecycle.
+    Data return is in a JSON format.
+
+    WARNING: exported files will be automatically deleted after 7 days if not retrieved.
+    """
+    # set your API key before making the request
+    header = {"Authorization": api_key}
+
+    # query the api
+    resp = requests.get(
+        headers=header,
+        url="https://openet-api.org/account/storage"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/storage"
+    )
+
+    print(resp.json())
 
 
-def upload(filepath, api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
-    import requests
+def upload(filepath, api_key=API_KEY):
+    """Upload a temporary GeoJSON file to use with OpenET.
 
+    As an alternative to storing shapefiles on Google Earth Engine, OpenET allows you to generate a temporary
+    asset id by uploading a RFC 7946 formatted GeoJSON file to delineate boundaries for data extractions.
+
+    Each file uploaded has a maximum file size of 25mb and expires after 72 hours. During this time you can use
+    the generated temporary asset id for the corresponding parameter. Data return is in a JSON format.
+    """
     # set your API key before making the request
     header = {"Authorization": api_key}
 
@@ -287,30 +327,39 @@ def upload(filepath, api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
     resp = requests.post(
         headers=header,
         files=args,
-        url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/upload"
-        # url="https://openet-api.org/account/upload"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/upload"
+        url="https://openet-api.org/account/upload"
     )
 
     print(resp.json())
 
 
-def check(api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+def check(api_key=API_KEY):
     # set your API key before making the request
     with open(api_key, 'r') as f:
         api_key = f.readline()
     header = {"Authorization": api_key}
 
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/status"
+    else:
+        url = "https://openet-api.org/account/status"
+
     # query the api
     resp = requests.get(
         headers=header,
-        url="https://openet-api.org/account/status"  # both urls read the same thing.
+        url=url
+        # url="https://openet-api.org/account/status"  # both urls read the same thing.
         # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/status"
     )
 
-    print(resp.json())
+    try:
+        print(resp.json())
+    except requests.exceptions.JSONDecodeError:
+        print(resp)
 
 
-def export_stack(fields, start='2020-01-01', end='2024-12-31', api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+def export_stack(fields, start='2020-01-01', end='2024-12-31', api_key=API_KEY):
     """ Export GeoTIFFs of OpenET data to Google Drive. Use GEE asset as study area.
 
     Export is limited to 31 time steps per request. Each time step is a sepearate file.
@@ -347,7 +396,7 @@ def export_stack(fields, start='2020-01-01', end='2024-12-31', api_key='C:/Users
 
 
 def export_multipolygon(fields, start='2020-01-01', end='2024-12-31',
-                        api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+                        api_key=API_KEY):
     """ """
     # set your API key before making the request
     with open(api_key, 'r') as f:
@@ -382,7 +431,7 @@ def export_multipolygon(fields, start='2020-01-01', end='2024-12-31',
     print(resp.json())
 
 
-def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key='C:/Users/CND571/Documents/OpenET_API.txt'):
+def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key=API_KEY):
     """ Export GeoTIFFs of OpenET data to Google Drive. Use rectangle as study area.
 
     Export is limited to 31 time steps per request. Each time step is a sepearate file.
@@ -427,10 +476,121 @@ def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key='C:/Users/CN
     print(resp.json())
 
 
+def timeseries_point(point, start='2024-01-01', end='2025-12-31', api_key=API_KEY):
+    """ Uses OpenET's raster/timeseries/point endpoint.
+
+    point: [lon, lat] location er
+    """
+
+    # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
+    header = {"Authorization": api_key}
+
+    # endpoint arguments
+    args = {
+        "date_range": [
+            start,
+            end
+        ],
+        "interval": "daily",
+        "geometry": point,
+        "model": "Ensemble",
+        "variable": "ET",
+        "reference_et": "gridMET",
+        "units": "mm",
+        "file_format": "JSON"
+    }
+
+    # query the api
+    resp = requests.post(
+        headers=header,
+        json=args,
+        url="https://openet-api.org/raster/timeseries/point"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/timeseries/point"
+    )
+
+    print(resp.json())
+
+
+def gdb_ts(start="2024-01-01", end="2024-12-31", api_key=API_KEY):
+    """Provides support for retrieving timeseries from OpenET's pre-computed database.
+
+    Allows the user to define a list of field ids and export a subset of the OpenET geodatabase to retrieve
+    timeseries data. Extractions will only include data within one US State at a time, however, multi-model and
+    variable queries are supported in list format.
+
+    For large queries, uncompressed csv output is not an option and json must be selected.
+
+    NOTE: data in geodatabase are stored in metric (mm & hectares).
+    """
+    # set your API key before making the request
+    header = {"Authorization": api_key}
+
+    # endpoint arguments
+    args = {
+        "date_range": [
+            start,
+            end
+        ],
+        "interval": "daily",
+        "field_ids": [
+            "21130019358"
+        ],
+        "models": [
+            "Ensemble"
+        ],
+        "variables": [
+            "ET"
+        ],
+        "file_format": "JSON"
+    }
+
+    # query the api
+    resp = requests.post(
+        headers=header,
+        json=args,
+        url="https://openet-api.org/geodatabase/timeseries"
+    )
+
+    # unzip the data
+    try:
+        data = eval(gzip.decompress(resp.content).decode())
+        print(data)
+    except gzip.BadGzipFile:
+        print(resp.content)
+
+
 if __name__ == '__main__':
-    ee_fields = 'projects/ee-hehaugen/assets/GoldCreekFields1'
-    export_multipolygon(ee_fields, start='2024-01-01', end='2024-12-31')
-    export_multipolygon(ee_fields, start='2025-01-01', end='2025-09-03')
+
+    check()
+
+    # storage()
+
+    # gdb_ts()
+
+    # # This is not working with any combination of api key and endpoint. "Invalid API credentials"
+    # upload(r"S:\Water_Management\Clark Fork\Gold Creek\Gold Creek Return Flow Study\ANALYSIS\gis\GoldCreekFields.geojson")
+
+    # ee_fields = 'projects/ee-hehaugen/assets/GoldCreekFields1'
+    # export_multipolygon(ee_fields, start='2024-01-01', end='2024-12-31')
+    # export_multipolygon(ee_fields, start='2025-01-01', end='2025-09-03')
+
+    # # How to use the timeseries endpoint. Actually returns data, requires immediate formatting.
+    # gc_lys = {'FCP-LYS1': {'loc': [-112.910480, 46.573291], 'deg': '104'},
+    #           'FCP-LYS2': {'loc': [-112.912107, 46.574847], 'deg': '22'},
+    #           'NP-LYS1': {'loc': [-112.908331, 46.577076], 'deg': '212'},
+    #           'NP-LYS2': {'loc': [-112.906849, 46.579788], 'deg': '3'}}
+    # lys_et = []
+    # for k, v in gc_lys.items():
+    #     lys_et.append({'name': k, 'data': timeseries_point(v['loc'], '2024-01-01', '2025-10-01')})
+    # lys_et = pd.json_normalize(lys_et, 'data', ['name'])
+    # lys_et = lys_et.pivot(index='time', columns='name', values='et')
+    # lys_et.index = pd.to_datetime(lys_et.index)
+    # lys_et.to_csv(r"C:\Users\CND571\Downloads\gc_lys_OpenET_ensemble_et_daily_in_20240101_2025101.csv")
+
+    # lys_et = lys_et['2025-01-01':'2025-09-30']
+    # lys_et = lys_et.groupby(lys_et.index.month).sum()
 
     # ee_fields = 'projects/ee-hehaugen/assets/UpperYellowstoneBasin'
     # export_stack(ee_fields, start='2020-01-01', end='2022-06-30')
