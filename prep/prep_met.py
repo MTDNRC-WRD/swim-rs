@@ -8,7 +8,6 @@ import sys
 import xarray
 import xvec  # this is used, just tacked on to xarray stuff. Does need to be imported.
 import pandas as pd
-from datetime import timedelta
 import numpy as np
 from tqdm import tqdm
 from chmdata.thredds import GridMet, BBox
@@ -17,7 +16,6 @@ import urllib
 import sqlite3
 import cmethods
 
-# from data_extraction.gridmet.gridmet import air_pressure, actual_vapor_pressure
 from prep.reference_et import pm_fao56_ref
 from prep.reference_et import extraterrestrial_r, calc_rso
 
@@ -64,7 +62,7 @@ def step_1():
 # Specify which column in the shapefile represents the field's unique ID
 FEATURE_ID = 'FID_1'
 
-# # Step 3
+# # for GridMET
 CLIMATE_COLS = {
     'etr': {
         'nc': 'agg_met_etr_1979_CurrentYear_CONUS',
@@ -101,6 +99,7 @@ CLIMATE_COLS = {
 }
 
 
+# SLOOOOOOW
 def elevation_from_coordinate(lat: float, lon: float):
     """ Get elevation in meters from decimal degree coordinates using USGS National Map services.
     Args:
@@ -187,9 +186,11 @@ def met_data(centers, met_out, start=1987, end=2024, verbose=2):
     else:
         if verbose > 0:
             # print("Begin met data processing:")
+            print(time.ctime())
             print("GridMET processing:")
 
         # # gridmet processing
+        bnds = centers.total_bounds
         gmet_list = []  # empty list for storing gridmet data for each variable.
         for p, col in CLIMATE_COLS.items():  # 6s
             # No buffer added in GridMet from chmdata, so any desired buffer needs to be added here.
@@ -306,34 +307,53 @@ def met_data(centers, met_out, start=1987, end=2024, verbose=2):
             start_time = time.time()
             if verbose > 1:
                 # print("Livneh PPT bias correction")  # if we do temp too, this needs to happen before the ET calcs.
-                print("Livneh + Gridmet (bias correction, srad backfilling):")
+                print("Livneh + Gridmet bias correction:")
 
-            var = 'prcp_mm'
-            livneh[var].loc[{'time': slice(beg_dts, '1978-12-31')}] = cmethods.adjust(
-                method='quantile_mapping',
-                obs=ds[var].sel(time=slice('1979-01-01', min('2012-12-31', end_dts))),
-                simh=livneh[var].sel(time=slice('1979-01-01', min('2012-12-31', end_dts))),
-                # simulation historical, representing the overlapping period
-                simp=livneh[var].sel(time=slice(beg_dts, '1978-12-31')),
-                # simulation predicted, representing the projection period
-                n_quantiles=250,
-                kind='*',  # since we're doing precip. Otherwise, probably do '+'.
-            )[var]
+            # var = 'prcp_mm'  # adding et bias correction.
+            # Does this work independently on different fields? I think so, based on documentation.
+            for var in ['prcp_mm', 'eto_mm', 'etr_mm']:
+                livneh[var].loc[{'time': slice(beg_dts, '1978-12-31')}] = cmethods.adjust(
+                    method='quantile_mapping',
+                    obs=ds[var].sel(time=slice('1979-01-01', min('2012-12-31', end_dts))),
+                    simh=livneh[var].sel(time=slice('1979-01-01', min('2012-12-31', end_dts))),
+                    # simulation historical, representing the overlapping period
+                    simp=livneh[var].sel(time=slice(beg_dts, '1978-12-31')),
+                    # simulation predicted, representing the projection period
+                    n_quantiles=100,  # lowered from example 250.  Looks to do the same thing?
+                    kind='*',  # since we're doing precip. Otherwise, probably do '+'. ET also '*'?
+                )[var]
+
+            if verbose > 1:
+                print("{:.0f} seconds".format(time.time() - start_time))
+                start_time = time.time()
+                print("Livneh + Gridmet srad and concat:")
+
+            # # srad method 1: median of available years of data (before concat)
+            # # This one stalls forever, don't use.
+            # med_srad = ds['srad_wm2']
+            # med_srad['time'] = [i.dayofyear for i in pd.to_datetime(med_srad['time'].values)]
+            # med_srad = med_srad.groupby('time').median()  # 366-length time series for all fields.
+            #
+            # long_srad = pd.DataFrame(columns=ds[FEATURE_ID].values,
+            #                          index=pd.date_range(beg_dts, '1978-12-31', freq='D'))
+            # for j in range(366):
+            #     long_srad.loc[long_srad.index.dayofyear == j + 1] = med_srad[j]
+            #
+            # livneh['srad_wm2'] = long_srad  # results in no nans to fill.
 
             # concatenating the data (takes a long time)
             ds = xarray.concat([livneh.sel({'time': slice(beg_dts, '1978-12-31')}), ds], dim='time')
 
-            # filling in with estimated annual curve of srad
+            # srad method 2: 80% clear sky curve (after concat)
             srad = est_srad_wm2(beg_dts, centers, elevs)  # returns generalized time series
             # copying the srad time series to all FIDs
             srad_many = np.zeros((len(srad), len(ds[FEATURE_ID])))
             for i in range(len(ds[FEATURE_ID])):
                 srad_many[:, i] = np.reshape(srad, (1, -1))
             # print(srad_many.shape)
-
             ds['srad_wm2'].loc[{'time': srad.index}] = srad_many  # filling in missing Livneh data
+
             if verbose > 1:
-                # print("Livneh + Gridmet: {:.0f} seconds".format(time.time() - start_time))
                 print("{:.0f} seconds".format(time.time() - start_time))
             # That's all the Livneh-specific stuff.
 
@@ -398,7 +418,8 @@ def met_data(centers, met_out, start=1987, end=2024, verbose=2):
             # print("ET corrections: {:.0f} seconds".format(time.time() - start_time))
             print("{:.0f} seconds".format(time.time() - start_time))
 
-        print(ds)
+        if verbose > 2:
+            print(ds)
 
         if verbose > 1:
             print("Saving netcdf:")
@@ -421,31 +442,7 @@ if __name__ == '__main__':
         main_dir = 'F:'  # on local computer
     gis_dir = r"F:\SWIM_SID\statewide_irrigation_dataset_20240408\cleaner_counties_4326"
 
-    # county defines what files to read and write to.
-    county = '19'
-
-    gis_path = os.path.join(gis_dir, f'COUNTY_NO_{county}.geojson')
-    # print(gis_path)
-
-    gdf = gpd.read_file(gis_path)
-    gdf.index = gdf[FEATURE_ID]
-    # gdf.set_crs('EPSG:5071', allow_override=True)  # this is plotting fine in vscode and qgis, but it's not registering the right crs here.
-    gdf = gdf.to_crs('EPSG:5071')
-    # gdf['fid_1'] = [int(i[-4:]) for i in gdf.index]
-    # gdf['fid_2'] = [i[-4:] for i in gdf.index]
-    # gdf['fid_3'] = [i for i in gdf.index]
-    # print(gdf.geometry.iloc[0])  # should be meters
-    # step_1()  # printing some statistics of gdf
-
-    # Convert to correct coordinate system. Need bounds and field centroids.
-    gdf_4326 = gdf.to_crs("EPSG:4326")
-    bnds = gdf_4326.total_bounds
-    gdf['centroids'] = gdf.geometry.centroid  # Not good?
-    centroids = gdf['centroids'].to_crs('EPSG:4326')
-    # centroids = gdf_4326.geometry.centroid  # Not good?
-    # print(centroids.iloc[0])  # should be decimal degrees
-
-    # still not sure what this chunk is doing.
+    # still not sure what this chunk is doing.  # what happens when I take this out? It failed. Was it because of this?
     sys.path.append(main_dir)
     sys.path.insert(0, os.path.abspath('../..'))
     sys.setrecursionlimit(5000)
@@ -454,21 +451,46 @@ if __name__ == '__main__':
     beg_year = 1963  # 1 extra year to account for the first year having bad model results due to initial conditions.
     end_year = 2023
 
-    # # testing stuff
-    # beg_year = 1977
-    # end_year = 1979
+    print(time.ctime())
 
-    # output file locations
-    met_nc = os.path.join(main_dir, 'SWIM_SID', 'met', f'{county:03}_{beg_year}_{end_year}_ln_gm_corr.nc')
+    # location-specific processing:
 
-    print()
+    # finished_counties = ['19', '33', '61', '101', '51', ]
+    # processing_times = [520, 412, 746, 2739, 533, ]  # ooh, interesting... wildly varying?
+    # Is that realated to areal extent, not field count? Does that make sense?
 
-    # all_start = time.time()  # timing is included in the step.
+    # county defines what files to read and write to.
+    # county = '19'
+    counties = ['19', '33', '61', '101', '51', '41', '91', '53', '15', '93', '55', '75', '37', '23', '69', '45', '79',
+                '107', '21', '27', '89', '39', '35', '85', '43', '65', '63', '59', '77', '29', '17', '87', '103', '7',
+                '95', '13', '1', '83', '49', '57', '5', '9', '3', '97', '67', '71', '31', '105', '73', '81', '99',
+                '111', '47']  # all counties in increasing order of fields, through index 5 complete
 
-    met_data(centroids, met_nc, beg_year, end_year)
+    counties = ['33', '61', '101', '51', '41']  # current run
+    for county in tqdm(counties[6:], total=len(counties[6:])):  # try the next 5 counties, see what's up
+        gis_path = os.path.join(gis_dir, f'COUNTY_NO_{county}.geojson')  # should be saved in EPSG:4326.
+        # # this is fine in vscode/qgis, but here it's not the right crs (unless EPSG:4326). proj and geojson issue?
+        # print(gis_path)
+        print(f"County {county}")
 
-    # all_end = time.time()
-    # print()
-    # print("Total met input netcdf processing time: {:.0f} seconds".format(all_end - all_start))
+        gdf = gpd.read_file(gis_path)
+        gdf.index = gdf[FEATURE_ID]
+        gdf = gdf.to_crs('EPSG:5071')
+        # step_1()  # printing some statistics of gdf
+
+        # Convert to correct coordinate system. Need bounds and field centroids.
+        gdf_4326 = gdf.to_crs("EPSG:4326")
+        gdf['centroids'] = gdf.geometry.centroid  # Not good?
+        centroids = gdf['centroids'].to_crs('EPSG:4326')
+        # print(centroids.iloc[0])  # should be decimal degrees
+
+        # output file location
+        met_nc = os.path.join(main_dir, 'SWIM_SID', 'met', f'{county:>03}_{beg_year}_{end_year}_ln_gm_corr.nc')
+
+        print()
+
+        met_data(centroids, met_nc, beg_year, end_year)
+
+    print(time.ctime())
 
 # ========================= EOF ====================================================================
