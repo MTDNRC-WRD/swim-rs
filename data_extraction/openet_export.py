@@ -1,109 +1,19 @@
 import os
 
-import numpy as np
-import pandas as pd
+# import pandas as pd
+import time
 import requests
 import gzip
 
-# I don't know what these files are from anymore.
-FILES = {
-    99: {'tracking_id': 'GB7QTW36UASFOYGLP6LFTWTL', 'encrypted': False, 'name': '40fa2', 'destination': 'drive'},
-    100: {'tracking_id': 'RTWV2VMUBE6XU6I2UHQRKELU', 'encrypted': False, 'name': 'f70f0', 'destination': 'drive'},
-    101: {'tracking_id': 'HZIW33WT3TDQY4QK7UZBDQFH', 'encrypted': False, 'name': 'd4bc3', 'destination': 'drive'},
-    102: {'tracking_id': 'HDOGJZFFYB4UTJ57EJKX5A3B', 'encrypted': False, 'name': 'e4077', 'destination': 'drive'},
-    103: {'tracking_id': 'IU2E5FP3PZPAEMTT5HIJVYP5', 'encrypted': False, 'name': 'b8d06', 'destination': 'drive'},
-    104: {'tracking_id': 'WCMDDX3KGC7HNCOY7XFS6O7F', 'encrypted': False, 'name': 'af989', 'destination': 'drive'},
-    105: {'tracking_id': 'XDNAUNYON5RL4O636MWZLIZW', 'encrypted': False, 'name': 'd5a04', 'destination': 'drive'},
-    106: {'tracking_id': 'GOS6T6RZA22SEGWIZVBFIH3N', 'encrypted': False, 'name': '67ef0', 'destination': 'drive'},
-    107: {'tracking_id': 'UNDNX73JXYIXXVDLJJV4EQE3', 'encrypted': False, 'name': 'c7f04', 'destination': 'drive'},
-    115: {'tracking_id': 'IIDNEUK65377Z2S3ZXU6YJRV', 'encrypted': False, 'name': '81128', 'destination': 'drive'},
-    116: {'tracking_id': 'ADNXBMUZWEHJ3YRLQKLG4QIR', 'encrypted': False, 'name': 'cb40a', 'destination': 'drive'},
-    117: {'tracking_id': '46CJ4W5HKFNXJKRBMSDLGD6S', 'encrypted': False, 'name': '58593', 'destination': 'drive'},
-    118: {'tracking_id': 'XX2LWYR5NJQFNV7ZEVCJE7XW', 'encrypted': False, 'name': 'f905b', 'destination': 'drive'},
-    119: {'tracking_id': 'P4XXERHI43CUOG4YA6NJIRJQ', 'encrypted': False, 'name': '16008', 'destination': 'drive'},
-    120: {'tracking_id': '4H6UV2Y65Y5W7ET3EKDEBHGH', 'encrypted': False, 'name': 'f4a8a', 'destination': 'drive'},
-    121: {'tracking_id': 'MAXSQZYNTKUR4WZGPYNUFL63', 'encrypted': False, 'name': '09856', 'destination': 'drive'},
-    122: {'tracking_id': 'BMFKNNLMOEFZ6T424HEU76BB', 'encrypted': False, 'name': 'd949f', 'destination': 'drive'},
-    123: {'tracking_id': 'GJ3ETD6DS2IFTMMMJ2WGUDM3', 'encrypted': False, 'name': '6e47d', 'destination': 'drive'},
-    132: {'tracking_id': 'FOKMU4HA2CUJHROITBXNL2Q3', 'encrypted': False, 'name': '6bdfc', 'destination': 'drive'},
-    133: {'tracking_id': 'RAYWGOHUSIO7ZWIBDGC6IAUP', 'encrypted': False, 'name': '6403b', 'destination': 'drive'},
-    134: {'tracking_id': 'PYROONNGQ3OVQYM4O6BKFSFB', 'encrypted': False, 'name': '23439', 'destination': 'drive'},
-    135: {'tracking_id': 'HTAQBDZ6OKJSFAOEQ4WMDDAK', 'encrypted': False, 'name': 'f9c24', 'destination': 'drive'},
-    136: {'tracking_id': 'GQNTG3NW43UZQZ36FGFWFMI4', 'encrypted': False, 'name': '150bd', 'destination': 'drive'},
-    137: {'tracking_id': 'PD5BZMBOXORNX6JLXDYJ3STM', 'encrypted': False, 'name': '62a13', 'destination': 'drive'},
-    138: {'tracking_id': 'JNVLUSSMVIGIXF3CEUHVNDAN', 'encrypted': False, 'name': '25644', 'destination': 'drive'},
-    139: {'tracking_id': 'OD7J5QQBDFIMZLPPPL6NVDZU', 'encrypted': False, 'name': 'ade37', 'destination': 'drive'},
-    140: {'tracking_id': 'T4YAHP4EBLT22P4AX5TJWT7S', 'encrypted': False, 'name': '71f50', 'destination': 'drive'},
-    156: {'tracking_id': '3J6XMHADJUT3HEF4RWA3FDKY', 'encrypted': False, 'name': '9cebc', 'destination': 'drive'},
-    157: {'tracking_id': 'SRNBFNMPG3WVN7I5322DKFDJ', 'encrypted': False, 'name': 'ac0c6', 'destination': 'drive'},
-    158: {'tracking_id': 'BFYIEV3LYMY6NPJ7C2TAM7ZV', 'encrypted': False, 'name': '12462', 'destination': 'drive'},
-    159: {'tracking_id': 'CMX2KEYOTBLQH352AW7CMAYQ', 'encrypted': False, 'name': '4284d', 'destination': 'drive'},
-    160: {'tracking_id': '4VPAZ776A4VNLAEGD3C3XBQH', 'encrypted': False, 'name': '35d2f', 'destination': 'drive'},
-    161: {'tracking_id': 'D5CBQ5Z6MAHXC3WJY3DC2MB6', 'encrypted': False, 'name': '8f8c8', 'destination': 'drive'},
-    162: {'tracking_id': 'RS2W7QMCQMANIGXZ3YLEP2TF', 'encrypted': False, 'name': '2f1ad', 'destination': 'drive'},
-    163: {'tracking_id': '4OENS76L3OAG42ZHBBKB3UTQ', 'encrypted': False, 'name': 'fd7b3', 'destination': 'drive'},
-    164: {'tracking_id': 'E3FHCK5HAZQR3IUDSEAF3T5M', 'encrypted': False, 'name': 'b8057', 'destination': 'drive'},
-    16: {'tracking_id': 'Z7VSQJQ7GIK4PVGDSTQ6VSCM', 'encrypted': False, 'name': 'e891e', 'destination': 'drive'},
-    17: {'tracking_id': 'C7WCDGMTG2UC25OS6ZIUWVYX', 'encrypted': False, 'name': 'c5f44', 'destination': 'drive'},
-    18: {'tracking_id': 'TJRF4HBWMEWRETUYKKYJG3AK', 'encrypted': False, 'name': 'a121e', 'destination': 'drive'},
-    19: {'tracking_id': '43Q3X3MU6NBHEIA3LSF5PTKO', 'encrypted': False, 'name': 'b918a', 'destination': 'drive'},
-    20: {'tracking_id': 'IKTUEKTZOM2AYON65HVBRKFB', 'encrypted': False, 'name': 'f6c9d', 'destination': 'drive'},
-    21: {'tracking_id': 'P4CM7VEMXWM25D3H2OFHMN4I', 'encrypted': False, 'name': 'd8a0e', 'destination': 'drive'},
-    22: {'tracking_id': '4E6ASZDQWZ6EREQXP7NVJBNH', 'encrypted': False, 'name': '77d50', 'destination': 'drive'},
-    23: {'tracking_id': 'NBRUS67LH3SRIOPTHCBDC5Z5', 'encrypted': False, 'name': '89e4f', 'destination': 'drive'},
-    24: {'tracking_id': 'SKHVHM25XMDVB3GALQZZ2RXI', 'encrypted': False, 'name': '1dcbe', 'destination': 'drive'},
-    25: {'tracking_id': 'KLZ4IH64LZYL7NJVDSCGO3QL', 'encrypted': False, 'name': '17d8d', 'destination': 'drive'},
-    26: {'tracking_id': 'WUD57QKWX7MQUPRW2GU3K7ST', 'encrypted': False, 'name': '67b48', 'destination': 'drive'},
-    27: {'tracking_id': 'TO5OMOAIFAQV4C3BDRV73GGC', 'encrypted': False, 'name': '1342d', 'destination': 'drive'},
-    28: {'tracking_id': '5BQ5Y5VEODELQLIG2XJJ6PLQ', 'encrypted': False, 'name': 'bead4', 'destination': 'drive'},
-    29: {'tracking_id': 'N5L73WIFGCROTQ56ZPJGGDGI', 'encrypted': False, 'name': '1026d', 'destination': 'drive'},
-    30: {'tracking_id': 'SHAM2JSG7SUFZN6UUVSVD577', 'encrypted': False, 'name': '343a6', 'destination': 'drive'},
-    31: {'tracking_id': 'I2HRHHXUZWHLIPBDEV62VFH2', 'encrypted': False, 'name': '60486', 'destination': 'drive'},
-    32: {'tracking_id': 'BZU4GYFVK5WZWETU6OX6YSHS', 'encrypted': False, 'name': '41ea5', 'destination': 'drive'},
-    33: {'tracking_id': 'PHKKZMN3PFDEX5PD4FYVDM6U', 'encrypted': False, 'name': '94089', 'destination': 'drive'},
-    34: {'tracking_id': 'NL4ZLXG2ZZFXM6JB3DHNMBT6', 'encrypted': False, 'name': '6f61e', 'destination': 'drive'},
-    35: {'tracking_id': 'FRK3GVLW6ID4LIYTOADBWGK4', 'encrypted': False, 'name': '80991', 'destination': 'drive'},
-    36: {'tracking_id': 'BAB7FUDRKLG4CG5ZQITMZPH7', 'encrypted': False, 'name': '57893', 'destination': 'drive'},
-    37: {'tracking_id': 'UDZ5SJUGP6ND53IDD4AJ3NEZ', 'encrypted': False, 'name': '0389a', 'destination': 'drive'},
-    38: {'tracking_id': 'CF72S37ZOO7ZDYHA7XMURRSA', 'encrypted': False, 'name': '04add', 'destination': 'drive'},
-    39: {'tracking_id': 'ON7P76KZROG6KUVLC6FM6IGT', 'encrypted': False, 'name': 'ba9e7', 'destination': 'drive'},
-    40: {'tracking_id': 'HMKOQJT45FKLMLNYIKMQQR7Y', 'encrypted': False, 'name': 'e9a30', 'destination': 'drive'},
-    41: {'tracking_id': '4MFYOCG63GQAHQA7KGSSZ7CO', 'encrypted': False, 'name': 'd9538', 'destination': 'drive'},
-    49: {'tracking_id': 'PV66UCSPMNSJYNJL7PMPBNRD', 'encrypted': False, 'name': '6b47d', 'destination': 'drive'},
-    50: {'tracking_id': 'QQ5RSZQLCLFEYCDTRLUC374B', 'encrypted': False, 'name': 'c29db', 'destination': 'drive'},
-    51: {'tracking_id': '4RLNOPEN5Z4HKFZSLPA57LQK', 'encrypted': False, 'name': '067c7', 'destination': 'drive'},
-    52: {'tracking_id': 'K7QI3MKIZBZTHMG72KUGSGSX', 'encrypted': False, 'name': '6f0c5', 'destination': 'drive'},
-    53: {'tracking_id': 'OSWDSYUQFNXBNM3MZHB7ID33', 'encrypted': False, 'name': '237bc', 'destination': 'drive'},
-    54: {'tracking_id': 'PTWHBSPV626X25EKD5AGC5Y4', 'encrypted': False, 'name': 'c8c63', 'destination': 'drive'},
-    55: {'tracking_id': 'VHEDAEDEYXIELECLAM7VAAZN', 'encrypted': False, 'name': 'd1b88', 'destination': 'drive'},
-    56: {'tracking_id': 'E6YEQDLSWEQGXDK7H6HC7GHC', 'encrypted': False, 'name': '844ba', 'destination': 'drive'},
-    57: {'tracking_id': 'B4EK2GBAS5QAIKAZJC65V3UB', 'encrypted': False, 'name': 'c6938', 'destination': 'drive'},
-    58: {'tracking_id': 'SCB55OQPNDTV2NMTKOVWLMLE', 'encrypted': False, 'name': '26666', 'destination': 'drive'},
-    59: {'tracking_id': 'KH6UNK6LEF7HKB7RR3VHU5GP', 'encrypted': False, 'name': 'd7f75', 'destination': 'drive'},
-    60: {'tracking_id': 'NZ4KVUPYIVBKCQ2GBPP3Q7DT', 'encrypted': False, 'name': 'd9f07', 'destination': 'drive'},
-    61: {'tracking_id': 'OH4OKDHOSLGOOM63ILHP63IF', 'encrypted': False, 'name': '48a36', 'destination': 'drive'},
-    62: {'tracking_id': 'JXBJ23RQYCQ6HMXNFPAAFALO', 'encrypted': False, 'name': '41c30', 'destination': 'drive'},
-    63: {'tracking_id': 'QCBXUTB6CCDY3AWQ6YDSWJO2', 'encrypted': False, 'name': '76955', 'destination': 'drive'},
-    64: {'tracking_id': 'I5TTJXKWWBWJPWPLWPCE5IKJ', 'encrypted': False, 'name': 'dadf3', 'destination': 'drive'},
-    65: {'tracking_id': 'TXI4EARFSUHE5SRVXFPBC76F', 'encrypted': False, 'name': '4a18b', 'destination': 'drive'},
-    66: {'tracking_id': 'JUIPIDE2Z753WALRHVKJENO4', 'encrypted': False, 'name': 'dbaf7', 'destination': 'drive'},
-    67: {'tracking_id': 'JQTTJXB3ERI3T6A3AOEPM7MM', 'encrypted': False, 'name': '286d4', 'destination': 'drive'},
-    68: {'tracking_id': 'JXSCRPFGEI3IZY524W7Z2WZA', 'encrypted': False, 'name': '7a84c', 'destination': 'drive'},
-    69: {'tracking_id': 'QOIWWCGG2TJ3MIMMK3GORJYM', 'encrypted': False, 'name': 'adecb', 'destination': 'drive'},
-    70: {'tracking_id': 'MB3TSYGXJPYFEZB5DVWVBVUT', 'encrypted': False, 'name': '23e48', 'destination': 'drive'},
-    71: {'tracking_id': 'JP6LOFY7ECZLWNH2SMQUAAPQ', 'encrypted': False, 'name': 'a4b7f', 'destination': 'drive'},
-    72: {'tracking_id': '4OQNKVUKPITB4NAD3OAG7UOP', 'encrypted': False, 'name': '0a080', 'destination': 'drive'},
-    73: {'tracking_id': 'R6BC6QCSGZ4TXRI6CBZDLDQ7', 'encrypted': False, 'name': '176c8', 'destination': 'drive'},
-    74: {'tracking_id': 'FAD3RN43ISRZNJ7BIJ32AJNI', 'encrypted': False, 'name': '515a0', 'destination': 'drive'}
-}
-
+# These two endpoints are working from the same quota bin. I think.
+# I don't how that works, as they might have different limits/permissions.
 
 # API_KEY = 'C:/Users/CND571/Documents/OpenET_API.txt'
-# API_KEY = 'C:/Users/CND571/Documents/New_OpenET_API.txt'
-# ENDPOINT = 'general'
+API_KEY = 'C:/Users/CND571/Documents/New_OpenET_API.txt'
+ENDPOINT = 'general'
 
-API_KEY = 'C:/Users/CND571/Documents/Haugen_Montana_API.txt'
-ENDPOINT = 'montana'
+# API_KEY = 'C:/Users/CND571/Documents/Haugen_Montana_API.txt'
+# ENDPOINT = 'montana'
 
 
 def openet_get_fields_export(fields, start, end, attrs='FID', et_too=False, show=False,
@@ -265,6 +175,11 @@ def track(track_id, api_key=API_KEY):
         api_key = f.readline()
     header = {"Authorization": api_key}
 
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/track"
+    else:
+        url = "https://openet-api.org/raster/export/track"
+
     # endpoint arguments
     args = {
         "tracking_id": track_id
@@ -274,7 +189,9 @@ def track(track_id, api_key=API_KEY):
     resp = requests.get(
         headers=header,
         params=args,
-        url="https://openet-api.org/raster/export/track"
+        url=url
+        # url="https://openet-api.org/raster/export/track"
+        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/track"
     )
 
     print(resp.json())
@@ -294,12 +211,20 @@ def storage(api_key=API_KEY):
     WARNING: exported files will be automatically deleted after 7 days if not retrieved.
     """
     # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
     header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/storage"
+    else:
+        url = "https://openet-api.org/account/storage"
 
     # query the api
     resp = requests.get(
         headers=header,
-        url="https://openet-api.org/account/storage"
+        url=url
+        # url="https://openet-api.org/account/storage"
         # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/storage"
     )
 
@@ -316,7 +241,14 @@ def upload(filepath, api_key=API_KEY):
     the generated temporary asset id for the corresponding parameter. Data return is in a JSON format.
     """
     # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
     header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/upload"
+    else:
+        url = "https://openet-api.org/account/upload"
 
     # endpoint arguments
     args = {
@@ -327,11 +259,12 @@ def upload(filepath, api_key=API_KEY):
     resp = requests.post(
         headers=header,
         files=args,
-        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/upload"
-        url="https://openet-api.org/account/upload"
+        url=url
     )
 
     print(resp.json())
+
+    return resp.json()['asset_id']
 
 
 def check(api_key=API_KEY):
@@ -349,8 +282,6 @@ def check(api_key=API_KEY):
     resp = requests.get(
         headers=header,
         url=url
-        # url="https://openet-api.org/account/status"  # both urls read the same thing.
-        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/account/status"
     )
 
     try:
@@ -368,6 +299,11 @@ def export_stack(fields, start='2020-01-01', end='2024-12-31', api_key=API_KEY):
     with open(api_key, 'r') as f:
         api_key = f.readline()
     header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/stack"
+    else:
+        url = "https://openet-api.org/raster/export/stack"
 
     # endpoint arguments
     args = {
@@ -388,8 +324,7 @@ def export_stack(fields, start='2020-01-01', end='2024-12-31', api_key=API_KEY):
     resp = requests.post(
         headers=header,
         json=args,
-        url="https://openet-api.org/raster/export/stack"
-        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/stack"
+        url=url
     )
 
     print(resp.json())
@@ -402,6 +337,57 @@ def export_multipolygon(fields, start='2020-01-01', end='2024-12-31',
     with open(api_key, 'r') as f:
         api_key = f.readline()
     header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/multipolygon"
+    else:
+        url = "https://openet-api.org/raster/export/multipolygon"
+
+    # endpoint arguments
+    args = {
+        "date_range": [
+            start,
+            end
+        ],
+        "interval": "monthly",
+        "asset_id": fields,
+        "attributes": ["FID_1"],
+        "model": "Ensemble",
+        "variable": "ETof",
+        "reducer": "mean",
+        "reference_et": "gridMET",
+        "units": "mm",
+        "encrypt": False,
+        "version": 2.0
+    }
+
+    # query the api
+    resp = requests.post(
+        headers=header,
+        json=args,
+        url=url
+    )
+
+    print(resp.json())
+
+    try:
+        return resp.json()['tracking_id'], resp.json()['name'], ''
+    except KeyError:
+        return 0, 0, resp.json()['detail']
+
+
+def export_multipolygon_1(fields, start='2020-01-01', end='2024-12-31',
+                          api_key=API_KEY):
+    """ """
+    # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
+    header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/multipolygon"
+    else:
+        url = "https://openet-api.org/raster/export/multipolygon"
 
     # endpoint arguments
     args = {
@@ -416,22 +402,27 @@ def export_multipolygon(fields, start='2020-01-01', end='2024-12-31',
         "variable": "ET",
         "reducer": "mean",
         "reference_et": "gridMET",
-        "units": "in",
-        "encrypt": False
+        "units": "mm",
+        "encrypt": False,
+        "version": 2.1
     }
 
     # query the api
     resp = requests.post(
         headers=header,
         json=args,
-        url="https://openet-api.org/raster/export/multipolygon"
-        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/multipolygon"
+        url=url
     )
 
     print(resp.json())
 
+    try:
+        return resp.json()['tracking_id'], resp.json()['name'], ''
+    except KeyError:
+        return 0, 0, resp.json()['detail']
 
-def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key=API_KEY):
+
+def export_stack_rect(bounds, start='2020-01-01', end='2024-12-31', api_key=API_KEY):
     """ Export GeoTIFFs of OpenET data to Google Drive. Use rectangle as study area.
 
     Export is limited to 31 time steps per request. Each time step is a sepearate file.
@@ -441,6 +432,15 @@ def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key=API_KEY):
         api_key = f.readline()
     header = {"Authorization": api_key}
 
+    xmin, ymin, xmax, ymax = bounds  # tuple of length 4 in EPSG:4326
+    geometry = [xmin, ymin, xmin, ymax, xmax, ymax, xmax, ymin]
+    print(geometry)
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/stack"
+    else:
+        url = "https://openet-api.org/raster/export/stack"
+
     # endpoint arguments
     args = {
         "date_range": [
@@ -448,20 +448,11 @@ def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key=API_KEY):
             end
         ],
         "interval": "monthly",
-        "geometry": [
-            -110.5004,
-            45.8960,
-            -110.5004,
-            45.9402,
-            -110.4259,
-            45.9402,
-            -110.4259,
-            45.8960
-        ],
+        "geometry": geometry,
         "model": "Ensemble",
         "variable": "ET",
         "reference_et": "gridMET",
-        "units": "in",
+        "units": "mm",
         "encrypt": False
     }
 
@@ -469,8 +460,7 @@ def export_stack_rect(start='2020-01-01', end='2024-12-31', api_key=API_KEY):
     resp = requests.post(
         headers=header,
         json=args,
-        url="https://openet-api.org/raster/export/stack"
-        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/export/stack"
+        url=url
     )
 
     print(resp.json())
@@ -486,6 +476,11 @@ def timeseries_point(point, start='2024-01-01', end='2025-12-31', api_key=API_KE
     with open(api_key, 'r') as f:
         api_key = f.readline()
     header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/timeseries/point"
+    else:
+        url = "https://openet-api.org/raster/timeseries/point"
 
     # endpoint arguments
     args = {
@@ -506,8 +501,7 @@ def timeseries_point(point, start='2024-01-01', end='2025-12-31', api_key=API_KE
     resp = requests.post(
         headers=header,
         json=args,
-        url="https://openet-api.org/raster/timeseries/point"
-        # url="https://openet-api-montana-ic5gyecbva-uw.a.run.app/raster/timeseries/point"
+        url=url
     )
 
     print(resp.json())
@@ -525,7 +519,14 @@ def gdb_ts(start="2024-01-01", end="2024-12-31", api_key=API_KEY):
     NOTE: data in geodatabase are stored in metric (mm & hectares).
     """
     # set your API key before making the request
+    with open(api_key, 'r') as f:
+        api_key = f.readline()
     header = {"Authorization": api_key}
+
+    if ENDPOINT == 'montana':
+        url = "https://openet-api-montana-ic5gyecbva-uw.a.run.app/geodatabase/timeseries"
+    else:
+        url = "https://openet-api.org/geodatabase/timeseries"
 
     # endpoint arguments
     args = {
@@ -535,7 +536,7 @@ def gdb_ts(start="2024-01-01", end="2024-12-31", api_key=API_KEY):
         ],
         "interval": "daily",
         "field_ids": [
-            "21130019358"
+            "21130019358"  # GC alfalfa (NP and FCP), 21130019393 is upper terrace on west pivot
         ],
         "models": [
             "Ensemble"
@@ -550,7 +551,7 @@ def gdb_ts(start="2024-01-01", end="2024-12-31", api_key=API_KEY):
     resp = requests.post(
         headers=header,
         json=args,
-        url="https://openet-api.org/geodatabase/timeseries"
+        url=url
     )
 
     # unzip the data
@@ -563,18 +564,86 @@ def gdb_ts(start="2024-01-01", end="2024-12-31", api_key=API_KEY):
 
 if __name__ == '__main__':
 
-    check()
+    # Testing things
 
-    # storage()
+    # check()
+
+    storage()  # returns all active links, even if they have been retrieved already.
 
     # gdb_ts()
 
-    # # This is not working with any combination of api key and endpoint. "Invalid API credentials"
     # upload(r"S:\Water_Management\Clark Fork\Gold Creek\Gold Creek Return Flow Study\ANALYSIS\gis\GoldCreekFields.geojson")
 
+    # # # Worked on regular server, on MT server it can produce:
+    # # # ImageCollection asset 'projects/openet/assets/ensemble/conus/gridmet/landsat/c02' not found
+    # # # (does not exist or caller does not have access)
     # ee_fields = 'projects/ee-hehaugen/assets/GoldCreekFields1'
-    # export_multipolygon(ee_fields, start='2024-01-01', end='2024-12-31')
-    # export_multipolygon(ee_fields, start='2025-01-01', end='2025-09-03')
+    # # export_multipolygon(ee_fields, start='2024-01-01', end='2024-12-31')
+    # export_multipolygon_1(ee_fields, start='2025-01-01', end='2025-12-31')
+
+    # track('IM75AXPWFLSNF5KPYEBFBE2G')  # running on MT server, 558e9
+
+    # # Trying to get Evan's watersheds to work.
+
+    # this is too big. 'Single query area limit exceeded. Region must not exceed 200000 acres.'
+    # bnds = (-116.619478, 45.470972, -114.320293, 46.740637)  # largest watershed boundary in Evan's shapefile.
+
+    # # what about this? Still too big? But I added a buffer!
+    # bnds = [-116.23331945, 42.17297118, -115.82741815, 42.47022458]  # 28km grid
+    # bnds = [-116.22040773, 42.13800772, -115.82924409, 42.42461931]  # 27km grid
+
+    # # 'There are 0 rasters which meet the request criteria.' - Are they missing historical data? Looks like it.
+    # # 2000-2001 didn't work, but 2022-2023 did
+    # bnds = [-116.202862, 47.412161, -116.148276, 47.441068]  # the smallest watershed, to see if my code is wrong.
+    #
+    # export_stack_rect(bnds, '2022-01-01', '2023-12-31')
+
+    # ----------------------------------------------
+
+    # New procedure for getting data from OpenET:
+
+    import csv
+
+    logfile = r"F:\SWIM_SID\OpenET\OpenET_export_logging.csv"
+    gis_dir = r"F:\SWIM_SID\statewide_irrigation_dataset_20240408\Cleaner_Counties"
+    gis_dir = r"C:\Users\CND571\Downloads"
+
+    # for exporting <10-year chunks of data:
+    starts = ['1991-01-01', '2000-01-01', '2009-01-01', '2018-01-01']
+    ends = ['1999-12-31', '2008-12-31', '2017-12-31', '2024-12-31']
+
+    # [19, 33, 61, 101, 51, 41, 91, 53, 15, 93]  # first 10 counties
+    # OpenET has a global rate limit for individual users of 20 per minute with a maximum of 500 per hour.
+    # for county in [19]:
+    for section in [163]:
+        # print('\n', county)
+        # gis_path = os.path.join(gis_dir, f'COUNTY_NO_{county}.geojson')
+        gis_path = os.path.join(gis_dir, f"Section_{section}.geojson")  # I think these need to be in epsg:4326
+
+        asset = upload(gis_path)
+        # asset = 'https://storage.googleapis.com/openet-api-public/Hannah_Haugen_2433/9e553aeca4fe49169573f2c7c7ba59c3'
+        # asset = 'https://storage.googleapis.com/openet-api-public/Hannah_Haugen_2433/7b23b397a3014a3ba6b9a4b71de6bf12'  # section 357a
+
+        # Can I get the full record at once? No. Date range cannot exceed 10 years. :(
+        # trackid, filename = export_multipolygon(asset, start='1991-01-01', end='2024-12-31')
+
+        for s, e in zip(starts[::-1], ends[::-1]):
+            # print(s, e)
+            trackid, filename, message = export_multipolygon(asset, start=s, end=e)
+
+            now = time.strftime("%x %X")  # date and time
+
+            print(asset, trackid, filename)
+
+            with open(logfile, mode='a', newline='') as log:
+                writer = csv.writer(log)
+                # writer.writerow([county, gis_path, asset, trackid, filename, s, e, now, 'submitted'])
+                writer.writerow([section, gis_path, asset, trackid, filename, s, e, now, 'submitted', message])
+
+        # asset = "mynewasset"
+        # trackid, filename = 'ABCDEF123', 'ab123'
+
+    # --------------------------------------------------
 
     # # How to use the timeseries endpoint. Actually returns data, requires immediate formatting.
     # gc_lys = {'FCP-LYS1': {'loc': [-112.910480, 46.573291], 'deg': '104'},
