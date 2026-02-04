@@ -455,19 +455,14 @@ if __name__ == '__main__':
 
     # location-specific processing:
 
-    # finished_counties = ['19', '33', '61', '101', '51', ]
-    # processing_times = [520, 412, 746, 2739, 533, ]  # ooh, interesting... wildly varying?
-    # Is that realated to areal extent, not field count? Does that make sense?
-
     # county defines what files to read and write to.
     # county = '19'
     counties = ['19', '33', '61', '101', '51', '41', '91', '53', '15', '93', '55', '75', '37', '23', '69', '45', '79',
                 '107', '21', '27', '89', '39', '35', '85', '43', '65', '63', '59', '77', '29', '17', '87', '103', '7',
                 '95', '13', '1', '83', '49', '57', '5', '9', '3', '97', '67', '71', '31', '105', '73', '81', '99',
-                '111', '47']  # all counties in increasing order of fields, through index 5 complete
+                '111', '47']  # all counties in increasing order of fields
 
-    counties = ['33', '61', '101', '51', '41']  # current run
-    for county in tqdm(counties[6:], total=len(counties[6:])):  # try the next 5 counties, see what's up
+    for county in tqdm(counties, total=len(counties)):  # try the next 5 counties, see what's up
         gis_path = os.path.join(gis_dir, f'COUNTY_NO_{county}.geojson')  # should be saved in EPSG:4326.
         # # this is fine in vscode/qgis, but here it's not the right crs (unless EPSG:4326). proj and geojson issue?
         # print(gis_path)
