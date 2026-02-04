@@ -331,7 +331,7 @@ class PlotTracker:
         # TODO: get this from props
         # self.aw = et_cell.props['stn_whc'] / 12 * 1000.  # in/ft to mm/m
 
-        self.aw = plots.input['data_vars']['awc']['data'].reshape(1, -1) * 1000.
+        self.aw = plots.input['data_vars']['awc']['data'].reshape(1, -1) * 1000.  # why is this multiplied by 1000?
 
         self.ksat = plots.input['data_vars']['ksat']['data'].reshape(1, -1)
         # micrometer/sec to mm/day

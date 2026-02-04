@@ -471,9 +471,6 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
 
             selectors.append(_name)
 
-            # if splt[-1] not in ['20000514', '20000515']:
-            #     continue
-
             nd_img = coll.filterMetadata('system:index', 'equals', img_id).first().rename(_name)
 
             if mask_type == 'no_mask':
@@ -513,6 +510,8 @@ def clustered_sample_ndvi_direct_1(feature_coll, debug=False, mask_type='irr',
         if drops:
             drops.append('geo')
             data_df.drop(columns=drops, inplace=True, errors='ignore')
+        else:
+            data_df.drop(columns=['geo'], inplace=True, errors='ignore')
         # print(data_df.head())
         dfs.append(data_df)
     all_yrs = pd.concat(dfs, axis=1)
